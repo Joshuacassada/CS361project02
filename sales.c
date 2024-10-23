@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include "wrappers.h"
+#include "shmem.h"
 
 // Global variables for cleanup
 int shm_id;
@@ -48,7 +49,49 @@ void cleanup() {
         Sem_close(print_report_sem);
         Sem_unlink("/print_report_sem");
     }
-    
-    // Free allocated memory
-    free(child_pids);
 }
+
+void signal_handler(int signum) {
+    printf("\nReceived signal %d. Cleaning up...\n", signum);
+    
+    // Kill all child processes
+    for (int i = 0; i < num_factories + 1; i++) {
+        if (child_pids[i] > 0) {
+            kill(child_pids[i], SIGTERM);
+        }
+    }
+    
+    cleanup();
+    exit(EXIT_FAILURE);
+}
+
+int main(int argc, char *argv[]) {
+    num_factories = atoi(argv[1]);
+    int arg2 = atoi(argv[2]);
+
+    if (num_factories <= 0 || num_factories > MAXFACTORIES) {
+        fprintf(stderr, "Number of factories must be between 1 and %d\n", MAXFACTORIES);
+        exit(EXIT_FAILURE);
+    }
+    if (arg2 <= 0) {
+        fprintf(stderr, "Order size must be positive\n");
+        exit(EXIT_FAILURE);
+    }
+
+    sigactionWrapper(SIGINT, signal_handler);
+    sigactionWrapper(SIGTERM, signal_handler);
+
+    pid_t child_pids[MAXFACTORIES + 1];
+    
+    // Create keys for shared memory and message queue
+    key_t shm_key = ftok(".", 's');
+    key_t msg_key = ftok(".", 'm');
+    
+    // Create and attach to shared memory
+    shm_id = Shmget(shm_key, SHMEM_SIZE, IPC_CREAT | 0666);
+    shared_data = (shData *)Shmat(shm_id, NULL, 0);
+
+    
+
+}
+
