@@ -91,7 +91,31 @@ int main(int argc, char *argv[]) {
     shm_id = Shmget(shm_key, SHMEM_SIZE, IPC_CREAT | 0666);
     shared_data = (shData *)Shmat(shm_id, NULL, 0);
 
-    
+    shared_data->order_size = arg2;
+    shared_data->made = 0;
+    shared_data->remain = arg2;
+    shared_data->activeFactories = num_factories;
 
+    msg_queue_id = Msgget(msg_key, IPC_CREAT | 0666);
+
+    factory_log_sem = Sem_open("/factory_log_sem", O_CREAT | O_EXCL, 0666, 1);
+    finished_sem = Sem_open("/finished_sem", O_CREAT | O_EXCL, 0666, 0);
+    print_report_sem = Sem_open("/print_report_sem", O_CREAT | O_EXCL, 0666, 0);
+    
+    // Create Supervisor process
+    pid_t supervisor_pid = Fork();
+    if (supervisor_pid == 0) {
+        // Child process (Supervisor)
+        char num_factories_str[10];
+        sprintf(num_factories_str, "%d", num_factories);
+        
+        // Redirect stdout to supervisor.log
+        freopen("supervisor.log", "w", stdout);
+        
+        execl("./supervisor", "supervisor", num_factories_str, NULL);
+        perror("execl supervisor failed");
+        exit(EXIT_FAILURE);
+    }
+    child_pids[0] = supervisor_pid;
 }
 
