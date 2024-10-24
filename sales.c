@@ -65,6 +65,10 @@ void signal_handler(int signum) {
     exit(EXIT_FAILURE);
 }
 
+int getRandom(int min, int max) {
+    return min + (random() % (max - min + 1));
+}
+
 int main(int argc, char *argv[]) {
     num_factories = atoi(argv[1]);
     int arg2 = atoi(argv[2]);
@@ -117,5 +121,52 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     child_pids[0] = supervisor_pid;
+
+    for (int i = 1; i <= num_factories; i++) {
+        pid_t factoryPid = Fork();
+        if (factoryPid == 0) {
+            // Redirect stdout to factory.log
+            freopen("factory.log", "w", stdout);
+            
+            // Generate random capacity and duration for this factory
+            int capacity = getRandom(10, 50);
+            int duration = getRandom(500, 1200);
+            
+            // Convert numbers to strings for command line arguments
+            char idStr[10], capStr[10], durStr[10];
+            sprintf(idStr, "%d", i);
+            sprintf(capStr, "%d", capacity);
+            sprintf(durStr, "%d", duration);
+
+            printf("Starting Factory %d with capacity %d and duration %d\n", 
+                   i, capacity, duration);
+
+            execlp("./factory", "factory", idStr, capStr, durStr, NULL);
+            perror("Failed to execute factory");
+            exit(EXIT_FAILURE);
+        }
+        child_pids[i] = factoryPid;
+    }
+    Sem_wait(finished_sem);
+    
+    // Simulate checking printer status
+    printf("Checking printer status...\n");
+    Usleep(2000000);  // Sleep for 2 seconds
+    
+    // Signal supervisor to print final report
+    Sem_post(print_report_sem);
+
+    // Wait for all child processes
+    for (int i = 0; i < num_factories; i++) {
+        int status;
+        waitpid(child_pids[i], &status, 0);
+    }
+
+    // Clean up resources
+    cleanup();
+
+    printf("Sales process completed successfully\n");
+    return 0;
+
 }
 
