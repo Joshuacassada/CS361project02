@@ -1,130 +1,115 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
+#include <string.h>
 #include "wrappers.h"
-#include "shmem.h"
 #include "message.h"
-
-void sendMessageToSupervisor(int msgid, int factoryId, int capacity, 
-                           int partsMade, int duration, msgPurpose_t purpose) {
-    msgBuf msg;
-    msg.mtype = 1;  // Any non-zero value
-    msg.purpose = purpose;
-    msg.facID = factoryId;
-    msg.capacity = capacity;
-    msg.partsMade = partsMade;
-    msg.duration = duration;
-
-    if (msgsnd(msgid, &msg, MSG_INFO_SIZE, 0) == -1) {
-        perror("Failed to send message to supervisor");
-        exit(EXIT_FAILURE);
-    }
-}
+#include "shmem.h"
 
 int main(int argc, char *argv[]) {
     if (argc != 4) {
         fprintf(stderr, "Usage: %s <factory_id> <capacity> <duration>\n", argv[0]);
-        exit(EXIT_FAILURE);
+        exit(1);
     }
-
-    // Parse command line arguments
-    int factoryId = atoi(argv[1]);
+    
+    // Get semaphore name from environment
+    const char *factoryLogSem = getenv("FACTORY_LOG_SEM");
+    if (!factoryLogSem) {
+        fprintf(stderr, "FACTORY_LOG_SEM environment variable not set\n");
+        exit(1);
+    }
+    
+    int myID = atoi(argv[1]);
     int capacity = atoi(argv[2]);
     int duration = atoi(argv[3]);
-
-    if (factoryId <= 0 || factoryId > MAXFACTORIES) {
-        fprintf(stderr, "Invalid factory ID\n");
-        exit(EXIT_FAILURE);
-    }
-
-    if (capacity < 10 || capacity > 50) {
-        fprintf(stderr, "Capacity must be between 10 and 50\n");
-        exit(EXIT_FAILURE);
-    }
-
-    if (duration < 500 || duration > 1200) {
-        fprintf(stderr, "Duration must be between 500 and 1200 milliseconds\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // Connect to shared memory
-    key_t shmkey = ftok(".", 'S');
+    
+    // Reattach to shared memory
+    key_t shmkey = ftok(".", getppid());
     int shmid = Shmget(shmkey, SHMEM_SIZE, 0666);
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
-
-    // Connect to message queue
-    key_t msgkey = ftok(".", 'M');
+    
+    // Reattach to message queue
+    key_t msgkey = ftok(".", getppid() + 1);
     int msgid = Msgget(msgkey, 0666);
-
-    // Connect to factory log semaphore for synchronized output
-    sem_t *factoryLogSem = Sem_open2("/factory_log_sem", 0);
-
+    
+    // Open existing semaphore
+    sem_t *factoryLogSemaphore = Sem_open2(factoryLogSem, 0);
+    
+    // Print startup message
+    Sem_wait(factoryLogSemaphore);
+    printf("Factory # %d: STARTED. My Capacity = %d, in %d milliSeconds\n",
+           myID, capacity, duration);
+    fflush(stdout);
+    Sem_post(factoryLogSemaphore);
+    
     int iterations = 0;
     int totalPartsMade = 0;
-
-    // Main manufacturing loop
+    
     while (1) {
-        // Critical section: check remaining parts and update if needed
-        int partsToMake;
+        // Check if there are parts remaining to be made
+        int partsToMake = 0;
         
-        // Get mutex for shared memory access
-        Sem_wait(factoryLogSem);
-        
-        if (sharedData->remain <= 0) {
-            // No more parts to make
-            Sem_post(factoryLogSem);
-            break;
+        // Critical section for checking/updating shared memory
+        if (sharedData->remain > 0) {
+            partsToMake = (sharedData->remain < capacity) ? sharedData->remain : capacity;
+            sharedData->remain -= partsToMake;
         }
-
-        // Determine how many parts to make this iteration
-        partsToMake = (sharedData->remain < capacity) ? sharedData->remain : capacity;
-        sharedData->remain -= partsToMake;
         
-        // Print status before manufacturing
-        printf("Factory #%3d: Going to make %5d parts in %4d milliSecs\n",
-               factoryId, partsToMake, duration);
+        if (partsToMake == 0) {
+            break;  // No more parts to make
+        }
+        
+        // Print production message
+        Sem_wait(factoryLogSemaphore);
+        printf("Factory # %d: Going to make %d parts in %d milliSecs\n",
+               myID, partsToMake, duration);
         fflush(stdout);
+        Sem_post(factoryLogSemaphore);
         
-        Sem_post(factoryLogSem);
-
-        // Simulate manufacturing time
-        Usleep(duration * 1000);  // Convert milliseconds to microseconds
-
-        // Update statistics and send production message
+        // Simulate production time
+        Usleep(duration * 1000);  // Convert to microseconds
+        
+        // Update statistics
+        sharedData->made += partsToMake;
         totalPartsMade += partsToMake;
         iterations++;
-
-        // Critical section: update made count
-        Sem_wait(factoryLogSem);
-        sharedData->made += partsToMake;
         
-        // Print completion of this batch
-        printf("Factory #%3d: Completed making %5d parts\n",
-               factoryId, partsToMake);
-        fflush(stdout);
-        
-        Sem_post(factoryLogSem);
-
         // Send production message to supervisor
-        sendMessageToSupervisor(msgid, factoryId, capacity, 
-                              partsToMake, duration, PRODUCTION_MSG);
+        msgBuf msg;
+        msg.mtype = 1;
+        msg.purpose = PRODUCTION_MSG;
+        msg.facID = myID;
+        msg.capacity = capacity;
+        msg.partsMade = partsToMake;
+        msg.duration = duration;
+        
+        if (msgsnd(msgid, &msg, MSG_INFO_SIZE, 0) == -1) {
+            perror("msgsnd failed");
+            exit(1);
+        }
     }
-
-    // Critical section: print final status
-    Sem_wait(factoryLogSem);
-    printf("Factory Line %d: Completed after making total of %d parts in %d iterations\n",
-           factoryId, totalPartsMade, iterations);
+    
+    // Send completion message
+    msgBuf msg;
+    msg.mtype = 1;
+    msg.purpose = COMPLETION_MSG;
+    msg.facID = myID;
+    
+    if (msgsnd(msgid, &msg, MSG_INFO_SIZE, 0) == -1) {
+        perror("msgsnd failed");
+        exit(1);
+    }
+    
+    // Print completion message
+    Sem_wait(factoryLogSemaphore);
+    printf(">>> Factory # %d: Terminating after making total of %d parts in %d iterations\n",
+           myID, totalPartsMade, iterations);
     fflush(stdout);
-    Sem_post(factoryLogSem);
-
-    // Send completion message to supervisor
-    sendMessageToSupervisor(msgid, factoryId, capacity, 
-                          totalPartsMade, duration, COMPLETION_MSG);
-
+    Sem_post(factoryLogSemaphore);
+    
     // Clean up
-    Sem_close(factoryLogSem);
     Shmdt(sharedData);
-
+    Sem_close(factoryLogSemaphore);
+    
     return 0;
 }

@@ -1,173 +1,204 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
-#include <sys/msg.h>
 #include <signal.h>
-#include <semaphore.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <time.h>
+#include <errno.h>
+#include <string.h>
 #include "wrappers.h"
+#include "message.h"
 #include "shmem.h"
 
 // Global variables for cleanup
-int shm_id;
-int msg_queue_id;
-sem_t *factory_log_sem;  // For factory.log mutual exclusion
-sem_t *finished_sem;     // For supervisor to signal completion
-sem_t *print_report_sem; // For allowing supervisor to print report
-shData *shared_data;     // Pointer to shared memory
-pid_t *child_pids;      // Array to store child PIDs
-int num_factories;
+int shmid = -1;
+int msgid = -1;
+sem_t *factoryLogSem = NULL;
+sem_t *supDoneSem = NULL;
+sem_t *printReportSem = NULL;
+shData *sharedData = NULL;
+pid_t *childPids = NULL;
+int numFactories;
 
-// Cleanup function
+// Semaphore names
+char factoryLogSemName[256];
+char supDoneSemName[256];
+char printReportSemName[256];
+
 void cleanup() {
-    // Detach from shared memory
-    if (shared_data != NULL)
-        Shmdt(shared_data);
-    
-    // Remove shared memory
-    if (shm_id >= 0)
-        shmctl(shm_id, IPC_RMID, NULL);
+    // Detach and remove shared memory
+    if (sharedData)
+        Shmdt(sharedData);
+    if (shmid >= 0)
+        shmctl(shmid, IPC_RMID, NULL);
     
     // Remove message queue
-    if (msg_queue_id >= 0)
-        msgctl(msg_queue_id, IPC_RMID, NULL);
+    if (msgid >= 0)
+        msgctl(msgid, IPC_RMID, NULL);
     
     // Close and unlink semaphores
-    if (factory_log_sem != NULL) {
-        Sem_close(factory_log_sem);
-        Sem_unlink("/factory_log_sem");
+    if (factoryLogSem) {
+        Sem_close(factoryLogSem);
+        sem_unlink(factoryLogSemName);
     }
-    if (finished_sem != NULL) {
-        Sem_close(finished_sem);
-        Sem_unlink("/finished_sem");
+    if (supDoneSem) {
+        Sem_close(supDoneSem);
+        sem_unlink(supDoneSemName);
     }
-    if (print_report_sem != NULL) {
-        Sem_close(print_report_sem);
-        Sem_unlink("/print_report_sem");
+    if (printReportSem) {
+        Sem_close(printReportSem);
+        sem_unlink(printReportSemName);
     }
+    
+    // Free allocated memory
+    if (childPids)
+        free(childPids);
 }
 
-void signal_handler(int signum) {
-    printf("\nReceived signal %d. Cleaning up...\n", signum);
+void sigHandler(int sig) {
+    printf("\nSALES: Received signal %d. Cleaning up...\n", sig);
     
     // Kill all child processes
-    for (int i = 0; i < num_factories + 1; i++) {
-        if (child_pids[i] > 0) {
-            kill(child_pids[i], SIGTERM);
+    if (childPids) {
+        for (int i = 0; i < numFactories + 1; i++) {
+            if (childPids[i] > 0) {
+                kill(childPids[i], SIGKILL);
+            }
         }
     }
     
     cleanup();
-    exit(EXIT_FAILURE);
+    exit(1);
 }
 
-int getRandom(int min, int max) {
-    return min + (random() % (max - min + 1));
+void setupEnvironment() {
+    setenv("FACTORY_LOG_SEM", factoryLogSemName, 1);
+    setenv("SUPERVISOR_DONE_SEM", supDoneSemName, 1);
+    setenv("PRINT_REPORT_SEM", printReportSemName, 1);
 }
 
 int main(int argc, char *argv[]) {
-    num_factories = atoi(argv[1]);
-    int arg2 = atoi(argv[2]);
-
-    if (num_factories <= 0 || num_factories > MAXFACTORIES) {
+    if (argc != 3) {
+        fprintf(stderr, "Usage: %s <num_factories> <order_size>\n", argv[0]);
+        exit(1);
+    }
+    
+    numFactories = atoi(argv[1]);
+    int orderSize = atoi(argv[2]);
+    
+    if (numFactories > MAXFACTORIES || numFactories < 1) {
         fprintf(stderr, "Number of factories must be between 1 and %d\n", MAXFACTORIES);
-        exit(EXIT_FAILURE);
-    }
-    if (arg2 <= 0) {
-        fprintf(stderr, "Order size must be positive\n");
-        exit(EXIT_FAILURE);
+        exit(1);
     }
 
-    sigactionWrapper(SIGINT, signal_handler);
-    sigactionWrapper(SIGTERM, signal_handler);
-
-    pid_t child_pids[MAXFACTORIES + 1];
+    // Create unique semaphore names using pid to avoid conflicts
+    pid_t pid = getpid();
+    snprintf(factoryLogSemName, sizeof(factoryLogSemName), "/sem_fac_%d", pid);
+    snprintf(supDoneSemName, sizeof(supDoneSemName), "/sem_sup_%d", pid);
+    snprintf(printReportSemName, sizeof(printReportSemName), "/sem_print_%d", pid);
     
-    // Create keys for shared memory and message queue
-    key_t shm_key = ftok(".", 's');
-    key_t msg_key = ftok(".", 'm');
+    // Clean up any existing semaphores
+    sem_unlink(factoryLogSemName);
+    sem_unlink(supDoneSemName);
+    sem_unlink(printReportSemName);
     
-    // Create and attach to shared memory
-    shm_id = Shmget(shm_key, SHMEM_SIZE, IPC_CREAT | 0666);
-    shared_data = (shData *)Shmat(shm_id, NULL, 0);
-
-    shared_data->order_size = arg2;
-    shared_data->made = 0;
-    shared_data->remain = arg2;
-    shared_data->activeFactories = num_factories;
-
-    msg_queue_id = Msgget(msg_key, IPC_CREAT | 0666);
-
-    factory_log_sem = Sem_open("/factory_log_sem", O_CREAT | O_EXCL, 0666, 1);
-    finished_sem = Sem_open("/finished_sem", O_CREAT | O_EXCL, 0666, 0);
-    print_report_sem = Sem_open("/print_report_sem", O_CREAT | O_EXCL, 0666, 0);
+    // Set up signal handlers
+    sigactionWrapper(SIGINT, sigHandler);
+    sigactionWrapper(SIGTERM, sigHandler);
     
-    // Create Supervisor process
-    pid_t supervisor_pid = Fork();
-    if (supervisor_pid == 0) {
+    // Allocate child PIDs array
+    childPids = malloc((numFactories + 1) * sizeof(pid_t));
+    
+    // Create shared memory
+    key_t shmkey = ftok(".", pid);
+    shmid = Shmget(shmkey, SHMEM_SIZE, IPC_CREAT | 0666);
+    sharedData = (shData *)Shmat(shmid, NULL, 0);
+    
+    // Initialize shared data
+    sharedData->order_size = orderSize;
+    sharedData->made = 0;
+    sharedData->remain = orderSize;
+    sharedData->activeFactories = numFactories;
+    
+    // Create message queue
+    key_t msgkey = ftok(".", pid + 1);
+    msgid = Msgget(msgkey, IPC_CREAT | 0666);
+    
+    // Create semaphores
+    factoryLogSem = Sem_open(factoryLogSemName, O_CREAT, 0666, 1);
+    supDoneSem = Sem_open(supDoneSemName, O_CREAT, 0666, 0);
+    printReportSem = Sem_open(printReportSemName, O_CREAT, 0666, 0);
+    
+    printf("SALES: Will Request an Order of Size = %d parts\n", orderSize);
+    printf("Creating %d Factory(ies)\n", numFactories);
+    
+    // Create supervisor process
+    pid_t supPid = Fork();
+    if (supPid == 0) {
         // Child process (Supervisor)
-        char num_factories_str[10];
-        sprintf(num_factories_str, "%d", num_factories);
+        char numFactStr[10];
+        sprintf(numFactStr, "%d", numFactories);
+        
+        setupEnvironment();
         
         // Redirect stdout to supervisor.log
         freopen("supervisor.log", "w", stdout);
-        
-        execl("./supervisor", "supervisor", num_factories_str, NULL);
+        execl("./supervisor", "supervisor", numFactStr, NULL);
         perror("execl supervisor failed");
-        exit(EXIT_FAILURE);
+        exit(1);
     }
-    child_pids[0] = supervisor_pid;
-
-    for (int i = 1; i <= num_factories; i++) {
+    childPids[0] = supPid;
+    
+    // Seed random number generator
+    srandom(time(NULL));
+    
+    // Create factory processes
+    for (int i = 0; i < numFactories; i++) {
+        int capacity = 10 + (random() % 41); // 10 to 50
+        int duration = 500 + (random() % 701); // 500 to 1200
+        
         pid_t factoryPid = Fork();
         if (factoryPid == 0) {
-            // Redirect stdout to factory.log
-            freopen("factory.log", "w", stdout);
-            
-            // Generate random capacity and duration for this factory
-            int capacity = getRandom(10, 50);
-            int duration = getRandom(500, 1200);
-            
-            // Convert numbers to strings for command line arguments
+            // Child process (Factory)
             char idStr[10], capStr[10], durStr[10];
-            sprintf(idStr, "%d", i);
+            sprintf(idStr, "%d", i + 1);
             sprintf(capStr, "%d", capacity);
             sprintf(durStr, "%d", duration);
-
-            printf("Starting Factory %d with capacity %d and duration %d\n", 
-                   i, capacity, duration);
-
-            execlp("./factory", "factory", idStr, capStr, durStr, NULL);
-            perror("Failed to execute factory");
-            exit(EXIT_FAILURE);
+            
+            setupEnvironment();
+            
+            // Redirect stdout to factory.log
+            freopen("factory.log", "a", stdout);
+            execl("./factory", "factory", idStr, capStr, durStr, NULL);
+            perror("execl factory failed");
+            exit(1);
         }
-        child_pids[i] = factoryPid;
+        childPids[i + 1] = factoryPid;
+        
+        printf("SALES: Factory # %3d was created, with Capacity=%4d and Duration=%4d\n", 
+               i + 1, capacity, duration);
     }
-    Sem_wait(finished_sem);
+    
+    // Wait for supervisor to signal completion
+    Sem_wait(supDoneSem);
+    printf("SALES: Supervisor says all Factories have completed their mission\n");
     
     // Simulate checking printer status
-    printf("Checking printer status...\n");
-    Usleep(2000000);  // Sleep for 2 seconds
+    sleep(2);
     
     // Signal supervisor to print final report
-    Sem_post(print_report_sem);
-
+    printf("SALES: Permission granted to print final report\n");
+    Sem_post(printReportSem);
+    
     // Wait for all child processes
-    for (int i = 0; i < num_factories; i++) {
-        int status;
-        waitpid(child_pids[i], &status, 0);
+    printf("SALES: Cleaning up after the Supervisor Factory Processes\n");
+    for (int i = 0; i < numFactories + 1; i++) {
+        wait(NULL);
     }
-
+    
     // Clean up resources
     cleanup();
-
-    printf("Sales process completed successfully\n");
     return 0;
-
 }
-

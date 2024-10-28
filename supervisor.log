@@ -1,0 +1,46 @@
+SUPERVISOR: Started
+SUPERVISOR: Factory # 4 produced 17 parts in 737 milliSecs
+SUPERVISOR: Factory # 1 produced 11 parts in 783 milliSecs
+SUPERVISOR: Factory # 3 produced 20 parts in 880 milliSecs
+SUPERVISOR: Factory # 2 produced 30 parts in 963 milliSecs
+SUPERVISOR: Factory # 5 produced 50 parts in 1150 milliSecs
+SUPERVISOR: Factory # 4 produced 17 parts in 737 milliSecs
+SUPERVISOR: Factory # 1 produced 11 parts in 783 milliSecs
+SUPERVISOR: Factory # 3 produced 20 parts in 880 milliSecs
+SUPERVISOR: Factory # 2 produced 30 parts in 963 milliSecs
+SUPERVISOR: Factory # 4 produced 17 parts in 737 milliSecs
+SUPERVISOR: Factory # 5 produced 50 parts in 1150 milliSecs
+SUPERVISOR: Factory # 1 produced 11 parts in 783 milliSecs
+SUPERVISOR: Factory # 3 produced 20 parts in 880 milliSecs
+SUPERVISOR: Factory # 2 produced 30 parts in 963 milliSecs
+SUPERVISOR: Factory # 4 produced 17 parts in 737 milliSecs
+SUPERVISOR: Factory # 1 produced 11 parts in 783 milliSecs
+SUPERVISOR: Factory # 5 produced 50 parts in 1150 milliSecs
+SUPERVISOR: Factory # 3 produced 20 parts in 880 milliSecs
+SUPERVISOR: Factory # 4 produced 17 parts in 737 milliSecs
+SUPERVISOR: Factory # 2 produced 30 parts in 963 milliSecs
+SUPERVISOR: Factory # 1 produced 11 parts in 783 milliSecs
+SUPERVISOR: Factory # 3 produced 20 parts in 880 milliSecs
+SUPERVISOR: Factory # 4 produced 17 parts in 737 milliSecs
+SUPERVISOR: Factory # 5 produced 50 parts in 1150 milliSecs
+SUPERVISOR: Factory # 1 produced 11 parts in 783 milliSecs
+SUPERVISOR: Factory # 1 COMPLETED its task
+SUPERVISOR: Factory # 2 produced 30 parts in 963 milliSecs
+SUPERVISOR: Factory # 2 COMPLETED its task
+SUPERVISOR: Factory # 4 produced 17 parts in 737 milliSecs
+SUPERVISOR: Factory # 4 COMPLETED its task
+SUPERVISOR: Factory # 3 produced 20 parts in 880 milliSecs
+SUPERVISOR: Factory # 3 COMPLETED its task
+SUPERVISOR: Factory # 5 produced 45 parts in 1150 milliSecs
+SUPERVISOR: Factory # 5 COMPLETED its task
+SUPERVISOR: Manufacturing is complete. Awaiting permission to print final report
+
+****** SUPERVISOR: Final Report ******
+Factory # 1 made a total of 66 parts in 6 iterations
+Factory # 2 made a total of 150 parts in 5 iterations
+Factory # 3 made a total of 120 parts in 6 iterations
+Factory # 4 made a total of 119 parts in 7 iterations
+Factory # 5 made a total of 245 parts in 5 iterations
+=====================================
+Grand total parts made = 700 vs order size of 700
+>>> Supervisor Terminated

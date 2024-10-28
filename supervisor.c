@@ -1,132 +1,103 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
+#include <string.h>
 #include "wrappers.h"
-#include "shmem.h"
 #include "message.h"
+#include "shmem.h"
 
-// Structure to track per-factory statistics
 typedef struct {
-    int factoryID;
     int totalParts;
-    int totalIterations;
-    int isActive;
+    int iterations;
 } FactoryStats;
-
-// Compare function for qsort to sort factories by ID
-int compareFactories(const void *a, const void *b) {
-    return ((FactoryStats *)a)->factoryID - ((FactoryStats *)b)->factoryID;
-}
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <num_factories>\n", argv[0]);
-        exit(EXIT_FAILURE);
+        exit(1);
     }
 
+    // Get semaphore name from environment
+    const char *factoryLogSem = getenv("FACTORY_LOG_SEM");
+    const char *supDoneSem = getenv("SUPERVISOR_DONE_SEM");
+    const char *printReportSem = getenv("PRINT_REPORT_SEM");
+    
+    if (!factoryLogSem || !supDoneSem || !printReportSem) {
+        fprintf(stderr, "Required environment variables not set\n");
+        exit(1);
+    }
+    
     int numFactories = atoi(argv[1]);
-    if (numFactories <= 0 || numFactories > MAXFACTORIES) {
-        fprintf(stderr, "Invalid number of factories\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // Connect to shared memory
-    key_t shmkey = ftok(".", 'S');
+    FactoryStats *stats = calloc(numFactories, sizeof(FactoryStats));
+    
+    // Reattach to shared memory
+    key_t shmkey = ftok(".", getppid());
     int shmid = Shmget(shmkey, SHMEM_SIZE, 0666);
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
-
-    // Connect to message queue
-    key_t msgkey = ftok(".", 'M');
-    int msgid = Msgget(msgkey, 0666);
-
-    // Connect to semaphores
-    sem_t *supervisorReadySem = Sem_open2("/supervisor_ready_sem", 0);
-    sem_t *printReportSem = Sem_open2("/print_report_sem", 0);
-
-    // Initialize factory statistics
-    FactoryStats *stats = calloc(numFactories, sizeof(FactoryStats));
-    for (int i = 0; i < numFactories; i++) {
-        stats[i].factoryID = i + 1;
-        stats[i].isActive = 1;
-    }
-
-    // Main message processing loop
-    msgBuf msg;
-    int activeFactories = numFactories;
-    int grandTotalParts = 0;
-
-    printf("Supervisor started. Monitoring %d factories.\n", numFactories);
-
-    while (activeFactories > 0) {
-        // Receive message from any factory
-        int msgSize = msgrcv(msgid, &msg, MSG_INFO_SIZE, 0, 0);
-        if (msgSize == -1) {
-            perror("Message receive failed");
-            continue;
-        }
-
-        int factoryIndex = msg.facID - 1;
-        
-        switch (msg.purpose) {
-            case PRODUCTION_MSG:
-                printf("Factory %d produced %d parts in %d milliseconds\n",
-                       msg.facID, msg.partsMade, msg.duration);
-
-                // Update factory statistics
-                stats[factoryIndex].totalParts += msg.partsMade;
-                stats[factoryIndex].totalIterations++;
-                grandTotalParts += msg.partsMade;
-                break;
-
-            case COMPLETION_MSG:
-                printf("Factory %d has terminated\n", msg.facID);
-                stats[factoryIndex].isActive = 0;
-                activeFactories--;
-                break;
-
-            default:
-                printf("Received unsupported message type\n");
-                break;
-        }
-    }
-
-    // Signal sales that manufacturing is complete
-    Sem_post(supervisorReadySem);
-
-    // Wait for permission to print final report
-    Sem_wait(printReportSem);
-
-    // Sort factories by ID for final report
-    qsort(stats, numFactories, sizeof(FactoryStats), compareFactories);
-
-    // Print final manufacturing report
-    printf("\n=== Final Manufacturing Report ===\n");
-    printf("%-12s %-15s %-15s\n", "Factory ID", "Total Parts", "Total Iterations");
-    printf("----------------------------------------\n");
-
-    for (int i = 0; i < numFactories; i++) {
-        printf("%-12d %-15d %-15d\n",
-               stats[i].factoryID,
-               stats[i].totalParts,
-               stats[i].totalIterations);
-    }
-
-    printf("----------------------------------------\n");
-    printf("Grand Total Parts Manufactured: %d\n", grandTotalParts);
-    printf("Order Size: %d\n", sharedData->order_size);
     
-    if (grandTotalParts == sharedData->order_size) {
-        printf("✓ Production completed successfully - totals match\n");
-    } else {
-        printf("⚠ Warning: Production total doesn't match order size!\n");
+    // Reattach to message queue
+    key_t msgkey = ftok(".", getppid() + 1);
+    int msgid = Msgget(msgkey, 0666);
+    
+    // Open existing semaphores
+    sem_t *supDoneSemaphore = Sem_open2(supDoneSem, 0);
+    sem_t *printReportSemaphore = Sem_open2(printReportSem, 0);
+    
+    printf("SUPERVISOR: Started\n");
+    
+    // Process messages until all factories are done
+    int activeFactories = numFactories;
+    msgBuf msg;
+    
+    while (activeFactories > 0) {
+        if (msgrcv(msgid, &msg, MSG_INFO_SIZE, 0, 0) == -1) {
+            perror("msgrcv failed");
+            exit(1);
+        }
+        
+        int facIdx = msg.facID - 1;
+        
+        if (msg.purpose == PRODUCTION_MSG) {
+            printf("SUPERVISOR: Factory # %d produced %d parts in %d milliSecs\n",
+                   msg.facID, msg.partsMade, msg.duration);
+            
+            stats[facIdx].totalParts += msg.partsMade;
+            stats[facIdx].iterations++;
+        }
+        else if (msg.purpose == COMPLETION_MSG) {
+            printf("SUPERVISOR: Factory # %d COMPLETED its task\n", msg.facID);
+            activeFactories--;
+        }
     }
-
+    
+    printf("SUPERVISOR: Manufacturing is complete. Awaiting permission to print final report\n");
+    
+    // Signal sales that manufacturing is complete
+    Sem_post(supDoneSemaphore);
+    
+    // Wait for permission to print report
+    Sem_wait(printReportSemaphore);
+    
+    // Print final report
+    printf("\n****** SUPERVISOR: Final Report ******\n");
+    int grandTotal = 0;
+    
+    for (int i = 0; i < numFactories; i++) {
+        printf("Factory # %d made a total of %d parts in %d iterations\n",
+               i + 1, stats[i].totalParts, stats[i].iterations);
+        grandTotal += stats[i].totalParts;
+    }
+    
+    printf("=====================================\n");
+    printf("Grand total parts made = %d vs order size of %d\n",
+           grandTotal, sharedData->order_size);
+    
     // Clean up
     free(stats);
-    Sem_close(supervisorReadySem);
-    Sem_close(printReportSem);
     Shmdt(sharedData);
-
+    Sem_close(supDoneSemaphore);
+    Sem_close(printReportSemaphore);
+    
+    printf(">>> Supervisor Terminated\n");
     return 0;
 }
