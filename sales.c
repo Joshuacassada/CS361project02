@@ -7,6 +7,7 @@
 #include <sys/msg.h>
 #include <signal.h>
 #include <semaphore.h>
+#include <sys/wait.h>
 #include <fcntl.h>
 #include <time.h>
 #include "wrappers.h"
