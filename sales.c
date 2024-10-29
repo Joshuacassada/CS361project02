@@ -73,7 +73,7 @@ int main(int argc, char *argv[]){
     printReportSem = Sem_open("/print_report_sem", semflg, semmode, 0);
 
 
-    print("SALES: Will Request an Order of Size = %d parts\n", ordersize);
+    printf("SALES: Will Request an Order of Size = %d parts\n", ordersize);
 
     printf("Creating %d Factory(ies)\n", numfactories);
 
@@ -85,14 +85,15 @@ int main(int argc, char *argv[]){
             }
     pid_t supPid = Fork();
     if (supPid == 0){
-        dup2(fc, stdout);
+        dup2(fc, fileno(stdout));
 
-        char numfactories[10];
-        sprintf("Number of factories: %d", numfactories);
+        char numfactories_str[50];
+        sprintf(numfactories_str, "Number of factories: %d", numfactories);
         execlp("./supervisor", "supervisor", NULL);
         perror("execlp supervisor");
         exit(1);
     }
+    
 
     int fd = open("factory.log", O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
             if (fd == -1){
@@ -100,12 +101,12 @@ int main(int argc, char *argv[]){
                 exit(1);
             }
     for (int i = 0; i < numfactories; i++) {
-        msgBuf * capacity = (random() %  41) + 10;
-        msgBuf * duration = (random() % 701) + 500;
+        int capacity = (random() %  41) + 10;
+        int duration = (random() % 701) + 500;
         
         pid_t factory = Fork();
         if (factory == 0){
-            dup2(fd, stdout);
+            dup2(fd, fileno(stdout));
             char factoryid[10], cap[10], dur[10];
             sprintf(factoryid, "%d", factory);
             sprintf(cap, "%d", capacity);
@@ -120,11 +121,11 @@ int main(int argc, char *argv[]){
                i + 1, capacity, duration);
     }
 
-    wait(supPid);
+    Sem_wait(sem_rendezvous);
 
     Usleep(2000);
 
-    print("SALES: Printed to final report");
+    printf("SALES: Permission granted to print the final report\n");
 
     sem_post(printReportSem);
     
@@ -134,7 +135,6 @@ int main(int argc, char *argv[]){
         waitpid(childPids[i], NULL, 0);
     }
 
-
     Shmdt(sharedData);
     shmctl(shmid, IPC_RMID, NULL);
     msgctl(msgid, IPC_RMID, NULL);
@@ -142,9 +142,9 @@ int main(int argc, char *argv[]){
     Sem_unlink("/factory_log_sem");
     Sem_close(sem_rendezvous);
     Sem_unlink("/rendezvous_sem");
-    Sem_close("/print_report_sem");
-    Sem_unlink(printReportSem);
+    Sem_close(printReportSem);
+    Sem_unlink("/print_report_sem");
 
     free(childPids);
     return 0;
-} 
+}
