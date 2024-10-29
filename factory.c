@@ -21,9 +21,9 @@ int main(int argc, char *argv[]) {
     int factory_cap = atoi(argv[2]);
     int duration = atoi(argv[3]);
 
-    sem_t *factoryLogSemaphore = Sem_open2("/cantretw_sem_factory_log", 0);
+    sem_t *factoryLogSemaphore = Sem_open2("/cassadjx_sem_factory_log", 0);
 
-    key_t shmkey = ftok("message.h", getppid());
+    key_t shmkey = ftok(".", getppid());
     int shmid = Shmget(shmkey, SHMEM_SIZE, 0);
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
 

@@ -12,4 +12,4 @@ factory: factory.c  wrappers.c  wrappers.h message.c  message.h shmem.h
 clean:
 	rm -f *.o sales  factory  *.log
 	ipcrm -a
-	rm -f /dev/shm/aboutams_*
+	rm -f /dev/shm/cassadjx_*

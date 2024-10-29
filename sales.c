@@ -18,7 +18,7 @@ int shmid = -1;
 sem_t *sem_rendezvous;
 sem_t *sem_factory_log;
 pid_t childPids[MAXFACTORIES];
-sem_t *printReportSem = NULL;
+sem_t *printReportSem;
 
 void cleanup() {
    if (shmid != -1) {
@@ -28,12 +28,12 @@ void cleanup() {
        msgctl(msgid, IPC_RMID, NULL);
    }
    
-   Sem_close(sem_factory_log);
-   Sem_unlink("/cantretw_sem_factory_log");
-   Sem_close(sem_rendezvous);
-   Sem_unlink("/cantretw_rendezvous_sem");
-   Sem_close(printReportSem);
-   Sem_unlink("/cantretw_print_report_sem");
+    Sem_close(sem_factory_log);
+    Sem_unlink("/cassadjx_sem_factory_log");
+    Sem_close(sem_rendezvous);
+    Sem_unlink("/cassadjx_rendezvous_sem");
+    Sem_close(printReportSem);
+    Sem_unlink("/cassadjx_print_report_sem");
 }
 
 void goodbye(int sig) {
@@ -76,12 +76,12 @@ int main(int argc, char *argv[]){
    int semflg = O_CREAT | O_EXCL;
 
    // Create shared memory
-   key_t shmkey = ftok("shmem.h", pid);
+   key_t shmkey = ftok(".", pid);
    shmid = Shmget(shmkey, SHMEM_SIZE, shmflg);
 
    // Create message queue
-   key_t msgkey = ftok("message.h", pid + 1);
-   msgid = Msgget(msgkey, IPC_CREAT | 0666);
+   key_t msgkey = ftok(".", pid + 1);
+   msgid = Msgget(msgkey, shmflg);
 
    shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
 
@@ -90,9 +90,11 @@ int main(int argc, char *argv[]){
    sharedData->remain = ordersize;
    sharedData->activeFactories = numfactories;
 
-   sem_rendezvous = Sem_open("/cantretw_rendezvous_sem", semflg, semmode, 0);
-   sem_factory_log = Sem_open("/cantretw_sem_factory_log", semflg, semmode, 1);
-   printReportSem = Sem_open("/cantretw_print_report_sem", semflg, semmode, 0);
+    sem_rendezvous = sem_open("/cassadjx_rendezvous_sem", semflg, semmode, 0);
+    
+    sem_factory_log = sem_open("/cassadjx_sem_factory_log", semflg, semmode, 1);
+    
+    printReportSem = sem_open("/cassadjx_print_report_sem", semflg, semmode, 0);
 
 
    printf("SALES: Will Request an Order of Size = %d parts\n", ordersize);
@@ -157,5 +159,6 @@ int main(int argc, char *argv[]){
    }
 
    cleanup();
+   
    return 0;
 }
