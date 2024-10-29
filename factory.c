@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
     sem_t *factoryLogSemaphore = Sem_open2("/sem_factory_log", 0);
 
     key_t shmkey = ftok(".", getppid());
-    int shmid = Shmget(shmkey, SHMEM_SIZE, 0666);
+    int shmid = Shmget(shmkey, SHMEM_SIZE, 0);
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
 
     Sem_wait(factoryLogSemaphore);
