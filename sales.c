@@ -106,5 +106,7 @@ int main(int argc, char *argv[]){
                i + 1, capacity, duration);
     }
 
-    }
+    wait(supPid);
+
+    sleep(2);
 }
