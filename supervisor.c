@@ -19,7 +19,8 @@
 
 int msgid = -1;
 int shmid = -1;
-sem_t *sem_rendezvous;
+sem_t *sem_manufacturing_done;
+sem_t *sem_print_permission;
 
 void cleanup() {
     if (msgid != -1) {
@@ -28,8 +29,11 @@ void cleanup() {
     if (shmid != -1) {
         shmctl(shmid, IPC_RMID, NULL);
     }
-    if (sem_rendezvous != NULL) {
-        sem_close(sem_rendezvous);
+    if (sem_manufacturing_done != NULL) {
+        sem_close(sem_manufacturing_done);
+    }
+    if (sem_print_permission != NULL) {
+        sem_close(sem_print_permission);
     }
 }
 
@@ -46,67 +50,49 @@ int main(int argc, char *argv[]) {
     }
 
     pid_t pid = getpid();
-    key_t shmkey = ftok(".", pid);    // Same key as used in sales.c for shared memory
-    key_t msgkey = ftok(".", pid + 1); // Same key as used in sales.c for message queue
+    key_t shmkey = ftok(".", pid);
+    key_t msgkey = ftok(".", pid + 1);
 
-    // Attach to shared memory
-    shmid = Shmget(shmkey, SHMEM_SIZE, 0666); // Connect to the existing shared memory
+    // Attach to shared memory and message queue
+    shmid = Shmget(shmkey, SHMEM_SIZE, 0666);
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
+    msgid = Msgget(msgkey, 0666);
 
-    // Attach to the message queue
-    msgid = Msgget(msgkey, 0666); // Connect to the existing message queue
+    // Open semaphores
+    sem_manufacturing_done = Sem_open("/manufacturing_done", O_CREAT, 0666, 0);
+    sem_print_permission = Sem_open("/print_permission", O_CREAT, 0666, 0);
 
-    // Open the semaphore for synchronization with Sales
-    sem_rendezvous = Sem_open("/cassadjx_rendezvous_sem", 0);
-    if (sem_rendezvous == SEM_FAILED) {
-        perror("sem_open /cassadjx_rendezvous_sem failed");
-        exit(1);
-    }
+    int active_factories = num_factories;
+    int total_parts = 0;
 
-    int iterations = 0;
-    int total_parts_made = 0;
+    // Main supervisor loop
+    while (active_factories > 0) {
+        msgBuf msg;
+        Msgrcv(msgid, &msg, sizeof(msg) - sizeof(long), 0, 0);
 
-    // Supervisor loop: wait for messages from factories
-    while (sharedData->remain > 0) {
-        factoryMessage msg;
-        int result = Msgrcv(msgid, &msg, sizeof(msg) - sizeof(long), 0, 0);
-        if (result == -1) {
-            perror("Error receiving message");
-            cleanup();
-            exit(1);
+        if (msg.mtype == PRODUCTION_MSG) {
+            total_parts += msg.partsMade;
+            printf("Supervisor: Factory %d produced %d parts in %d milliseconds\n",
+                   msg.facID, msg.partsMade, msg.duration);
         }
-
-        int parts_to_make = (sharedData->remain < msg.capacity) ? sharedData->remain : msg.capacity;
-        sharedData->remain -= parts_to_make;
-        total_parts_made += parts_to_make;
-
-        printf("Factory #%d: Going to make %d parts in %d milliseconds\n", msg.factory_id, parts_to_make, msg.duration);
-        usleep(msg.duration * 1000); // Sleep for the specified duration (in milliseconds)
-        iterations++;
-
-        // Send production message
-        factoryMessage production_msg;
-        production_msg.mtype = msg.factory_id;
-        production_msg.factory_id = msg.factory_id;
-        production_msg.parts_made = parts_to_make;
-        Msgsnd(msgid, &production_msg, sizeof(production_msg) - sizeof(long), 0);
-
-        printf("Factory #%d has made %d parts\n", msg.factory_id, parts_to_make);
+        else if (msg.mtype == COMPLETION_MSG) {
+            active_factories--;
+            printf("Supervisor: Factory %d has terminated\n", msg.facID);
+        }
     }
 
-    // All parts made, send completion message
-    for (int i = 1; i <= num_factories; i++) {
-        factoryMessage completion_msg;
-        completion_msg.mtype = i;
-        completion_msg.factory_id = i;
-        completion_msg.parts_made = total_parts_made;
-        Msgsnd(msgid, &completion_msg, sizeof(completion_msg) - sizeof(long), 0);
-    }
+    // Manufacturing complete, signal Sales
+    Sem_post(sem_manufacturing_done);
 
-    printf("Supervisor: Completed. Total parts made: %d in %d iterations\n", total_parts_made, iterations);
+    // Wait for permission to print report
+    Sem_wait(sem_print_permission);
 
-    // Signal Sales process to print final report
-    Sem_post(sem_rendezvous);
+    // Print final report
+    printf("\nFinal Manufacturing Report:\n");
+    printf("-------------------------\n");
+    printf("Total parts manufactured: %d\n", total_parts);
+    printf("Order size: %d\n", sharedData->order_size);
+    printf("-------------------------\n");
 
     cleanup();
     return 0;
