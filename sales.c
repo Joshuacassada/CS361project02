@@ -13,14 +13,16 @@
 #include "shmem.h"
 #include <sys/stat.h>
 
+int msgid = -1;
+int shmid = -1;
 sem_t *sem_rendezvous;
 sem_t *sem_factory_log;
 pid_t *childPids = NULL;
+sem_t *printReportSem = NULL;
 
 
 void goodbye( int sig ) {
     fflush( stdout ) ;
-    printf( "\n### LEFT has been " );
     switch( sig )
         {
         case SIGTERM:
@@ -68,45 +70,81 @@ int main(int argc, char *argv[]){
 
     sem_rendezvous = Sem_open("/rendezvous_sem", semflg, semmode, 0);
     sem_factory_log = Sem_open("/sem_factory_log", semflg, semmode, 1);
+    printReportSem = Sem_open("/print_report_sem", semflg, semmode, 0);
 
-    print("SALES: Will Request an Order of Size = %d parts\n", ordersize);
+
+    printf("SALES: Will Request an Order of Size = %d parts\n", ordersize);
 
     printf("Creating %d Factory(ies)\n", numfactories);
 
 
+    int fc = open("supervisor.log", O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+            if (fc == -1){
+                fprintf(stderr, "error");
+                exit(1);
+            }
     pid_t supPid = Fork();
     if (supPid == 0){
-        dup2("supervisor.log", stdout);
+        dup2(fc, fileno(stdout));
 
-        char numfactories[10];
-        sprintf("Number of factories: %d", numfactories);
+        char numfactories_str[50];
+        sprintf(numfactories_str, "Number of factories: %d", numfactories);
         execlp("./supervisor", "supervisor", NULL);
         perror("execlp supervisor");
         exit(1);
     }
+    
 
+    int fd = open("factory.log", O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+            if (fd == -1){
+                fprintf(stderr, "error");
+                exit(1);
+            }
     for (int i = 0; i < numfactories; i++) {
-        msgBuf * capacity = (msgBuf *) capacity;
-        msgBuf * duration = (msgBuf *) duration;
+        int capacity = (random() %  41) + 10;
+        int duration = (random() % 701) + 500;
+        
         pid_t factory = Fork();
         if (factory == 0){
-
-            dup2("factory.log", stdout);
+            dup2(fd, fileno(stdout));
             char factoryid[10], cap[10], dur[10];
-            sprintf(factoryid, "%d", factoryid);
+            sprintf(factoryid, "%d", factory);
             sprintf(cap, "%d", capacity);
             sprintf(dur, "%d", duration);
-            execlp("./factory", "factory", NULL);
+            execlp("./factory", "factory", factoryid, cap, dur, NULL);
             perror("execlp factory");
             exit(1);
         }
-    childPids[i + 1] = factory;
+    childPids[i] = factory;
     
     printf("SALES: Factory # %3d was created, with Capacity=%4d and Duration=%4d\n",
                i + 1, capacity, duration);
     }
 
-    wait(supPid);
+    Sem_wait(sem_rendezvous);
 
-    sleep(2);
+    Usleep(2000);
+
+    printf("SALES: Permission granted to print the final report\n");
+
+    sem_post(printReportSem);
+    
+    printf("SALES: Cleaning up after the Supervisor Factory Processes\n");
+
+    for (int i = 0; i < numfactories; i++) {
+        waitpid(childPids[i], NULL, 0);
+    }
+
+    Shmdt(sharedData);
+    shmctl(shmid, IPC_RMID, NULL);
+    msgctl(msgid, IPC_RMID, NULL);
+    Sem_close(sem_factory_log);
+    Sem_unlink("/factory_log_sem");
+    Sem_close(sem_rendezvous);
+    Sem_unlink("/rendezvous_sem");
+    Sem_close(printReportSem);
+    Sem_unlink("/print_report_sem");
+
+    free(childPids);
+    return 0;
 }
