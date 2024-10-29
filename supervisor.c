@@ -16,6 +16,7 @@
 
 
 
+
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <num_factories>\n", argv[0]);
@@ -27,12 +28,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Invalid number of factories. Must be between 1 and %d.\n", MAXFACTORIES);
         exit(1);
     }
-
-    for (int i = 0; i < activeFactories; i++) {
-        factoryData[i].factoryID = i + 1;
-        factoryData[i].numPartsBuilt = 0;
-        factoryData[i].numIterations = 0;
-    }
+    
 
 
 }
