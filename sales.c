@@ -70,6 +70,8 @@ int main(int argc, char *argv[]){
 
     sem_rendezvous = Sem_open("/rendezvous_sem", semflg, semmode, 0);
     sem_factory_log = Sem_open("/sem_factory_log", semflg, semmode, 1);
+    printReportSem = Sem_open("/print_report_sem", semflg, semmode, 0);
+
 
     print("SALES: Will Request an Order of Size = %d parts\n", ordersize);
 
@@ -98,21 +100,21 @@ int main(int argc, char *argv[]){
                 exit(1);
             }
     for (int i = 0; i < numfactories; i++) {
-        msgBuf * capacity = (msgBuf *) capacity;
-        msgBuf * duration = (msgBuf *) duration;
+        msgBuf * capacity = (random() %  41) + 10;
+        msgBuf * duration = (random() % 701) + 500;
         
         pid_t factory = Fork();
         if (factory == 0){
             dup2(fd, stdout);
             char factoryid[10], cap[10], dur[10];
-            sprintf(factoryid, "%d", factoryid);
+            sprintf(factoryid, "%d", factory);
             sprintf(cap, "%d", capacity);
             sprintf(dur, "%d", duration);
-            execlp("./factory", "factory", NULL);
+            execlp("./factory", "factory", factoryid, cap, dur, NULL);
             perror("execlp factory");
             exit(1);
         }
-    childPids[i + 1] = factory;
+    childPids[i] = factory;
     
     printf("SALES: Factory # %3d was created, with Capacity=%4d and Duration=%4d\n",
                i + 1, capacity, duration);
@@ -120,13 +122,17 @@ int main(int argc, char *argv[]){
 
     wait(supPid);
 
-    Usleep(2);
+    Usleep(2000);
 
     print("SALES: Printed to final report");
 
     sem_post(printReportSem);
     
     printf("SALES: Cleaning up after the Supervisor Factory Processes\n");
+
+    for (int i = 0; i < numfactories; i++) {
+        waitpid(childPids[i], NULL, 0);
+    }
 
 
     Shmdt(sharedData);
@@ -136,5 +142,9 @@ int main(int argc, char *argv[]){
     Sem_unlink("/factory_log_sem");
     Sem_close(sem_rendezvous);
     Sem_unlink("/rendezvous_sem");
-    
+    Sem_close("/print_report_sem");
+    Sem_unlink(printReportSem);
+
+    free(childPids);
+    return 0;
 } 
