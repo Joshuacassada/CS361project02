@@ -20,36 +20,38 @@ sem_t *sem_factory_log;
 pid_t childPids[MAXFACTORIES];
 sem_t *printReportSem = NULL;
 
-
-void goodbye( int sig ) {
-   fflush( stdout ) ;
-   switch( sig )
-       {
-       case SIGTERM:
-           printf("nicely asked to TERMINATE by SIGTERM ( %d ).\n" , sig );
-           break ;
-       case SIGINT:
-           printf("INTERRUPTED by SIGINT ( %d )\n" , sig );
-           break ;
-       default:
-           printf("unexpectedly SIGNALed by ( %d )\n" , sig );
-       }
-    if (shmid != -1) {
-        shmctl(shmid, IPC_RMID, NULL);
-    }
-    if (msgid != -1) {
-        msgctl(msgid, IPC_RMID, NULL);
-    }
-    
-    Sem_close(sem_factory_log);
-    Sem_unlink("/sem_factory_log");
-    Sem_close(sem_rendezvous);
-    Sem_unlink("/rendezvous_sem");
-    Sem_close(printReportSem);
-    Sem_unlink("/print_report_sem");
-    exit(0);
-
+void cleanup() {
+   if (shmid != -1) {
+       shmctl(shmid, IPC_RMID, NULL);
+   }
+   if (msgid != -1) {
+       msgctl(msgid, IPC_RMID, NULL);
+   }
+   
+   Sem_close(sem_factory_log);
+   Sem_unlink("/cantretw_sem_factory_log");
+   Sem_close(sem_rendezvous);
+   Sem_unlink("/cantretw_rendezvous_sem");
+   Sem_close(printReportSem);
+   Sem_unlink("/cantretw_print_report_sem");
 }
+
+void goodbye(int sig) {
+   fflush(stdout);
+   switch(sig) {
+       case SIGTERM:
+           printf("nicely asked to TERMINATE by SIGTERM (%d).\n", sig);
+           break;
+       case SIGINT:
+           printf("INTERRUPTED by SIGINT (%d)\n", sig);
+           break;
+       default:
+           printf("unexpectedly SIGNALed by (%d)\n", sig);
+   }
+   cleanup();
+   exit(0);
+}
+
 int main(int argc, char *argv[]){
 
    if (argc != 3) {
@@ -61,8 +63,8 @@ int main(int argc, char *argv[]){
    int numfactories = atoi(argv[1]);
    int ordersize = atoi(argv[2]);
 
-   sigactionWrapper( SIGTERM ,  goodbye) ;
-   sigactionWrapper( SIGINT ,  goodbye) ;
+   sigactionWrapper(SIGTERM, goodbye);
+   sigactionWrapper(SIGINT, goodbye);
 
    if (numfactories > MAXFACTORIES || numfactories < 1){
        fprintf(stderr, "Number of factories must be between 1 and the %d\n", MAXFACTORIES);
@@ -74,11 +76,11 @@ int main(int argc, char *argv[]){
    int semflg = O_CREAT | O_EXCL;
 
    // Create shared memory
-   key_t shmkey = ftok(".", pid);
+   key_t shmkey = ftok("shmem.h", pid);
    shmid = Shmget(shmkey, SHMEM_SIZE, shmflg);
 
    // Create message queue
-   key_t msgkey = ftok(".", pid + 1);
+   key_t msgkey = ftok("message.h", pid + 1);
    msgid = Msgget(msgkey, IPC_CREAT | 0666);
 
    shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
@@ -88,9 +90,9 @@ int main(int argc, char *argv[]){
    sharedData->remain = ordersize;
    sharedData->activeFactories = numfactories;
 
-   sem_rendezvous = Sem_open("/rendezvous_sem", semflg, semmode, 0);
-   sem_factory_log = Sem_open("/sem_factory_log", semflg, semmode, 1);
-   printReportSem = Sem_open("/print_report_sem", semflg, semmode, 0);
+   sem_rendezvous = Sem_open("/cantretw_rendezvous_sem", semflg, semmode, 0);
+   sem_factory_log = Sem_open("/cantretw_sem_factory_log", semflg, semmode, 1);
+   printReportSem = Sem_open("/cantretw_print_report_sem", semflg, semmode, 0);
 
 
    printf("SALES: Will Request an Order of Size = %d parts\n", ordersize);
@@ -154,16 +156,6 @@ int main(int argc, char *argv[]){
        waitpid(childPids[i], NULL, 0);
    }
 
-   // Cleanup
-   Shmdt(sharedData);
-   shmctl(shmid, IPC_RMID, NULL);
-   msgctl(msgid, IPC_RMID, NULL);
-   Sem_close(sem_factory_log);
-   Sem_unlink("/sem_factory_log");
-   Sem_close(sem_rendezvous);
-   Sem_unlink("/rendezvous_sem");
-   Sem_close(printReportSem);
-   Sem_unlink("/print_report_sem");
-
+   cleanup();
    return 0;
 }
