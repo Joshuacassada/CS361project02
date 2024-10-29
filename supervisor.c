@@ -49,6 +49,10 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    int semmode = S_IRUSR | S_IWUSR;
+    int semflg = O_CREAT | O_EXCL;
+
+
     pid_t pid = getpid();
     key_t shmkey = ftok(".", pid);
     key_t msgkey = ftok(".", pid + 1);
