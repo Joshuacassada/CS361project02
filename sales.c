@@ -13,14 +13,16 @@
 #include "shmem.h"
 #include <sys/stat.h>
 
+int msgid = -1;
+int shmid = -1;
 sem_t *sem_rendezvous;
 sem_t *sem_factory_log;
 pid_t *childPids = NULL;
+sem_t *printReportSem = NULL;
 
 
 void goodbye( int sig ) {
     fflush( stdout ) ;
-    printf( "\n### LEFT has been " );
     switch( sig )
         {
         case SIGTERM:
@@ -74,9 +76,14 @@ int main(int argc, char *argv[]){
     printf("Creating %d Factory(ies)\n", numfactories);
 
 
+    int fc = open("supervisor.log", O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+            if (fc == -1){
+                fprintf(stderr, "error");
+                exit(1);
+            }
     pid_t supPid = Fork();
     if (supPid == 0){
-        dup2("supervisor.log", stdout);
+        dup2(fc, stdout);
 
         char numfactories[10];
         sprintf("Number of factories: %d", numfactories);
@@ -85,13 +92,18 @@ int main(int argc, char *argv[]){
         exit(1);
     }
 
+    int fd = open("factory.log", O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+            if (fd == -1){
+                fprintf(stderr, "error");
+                exit(1);
+            }
     for (int i = 0; i < numfactories; i++) {
         msgBuf * capacity = (msgBuf *) capacity;
         msgBuf * duration = (msgBuf *) duration;
+        
         pid_t factory = Fork();
         if (factory == 0){
-
-            dup2("factory.log", stdout);
+            dup2(fd, stdout);
             char factoryid[10], cap[10], dur[10];
             sprintf(factoryid, "%d", factoryid);
             sprintf(cap, "%d", capacity);
@@ -108,5 +120,21 @@ int main(int argc, char *argv[]){
 
     wait(supPid);
 
-    sleep(2);
+    Usleep(2);
+
+    print("SALES: Printed to final report");
+
+    sem_post(printReportSem);
+    
+    printf("SALES: Cleaning up after the Supervisor Factory Processes\n");
+
+
+    Shmdt(sharedData);
+    shmctl(shmid, IPC_RMID, NULL);
+    msgctl(msgid, IPC_RMID, NULL);
+    Sem_close(sem_factory_log);
+    Sem_unlink("/factory_log_sem");
+    Sem_close(sem_rendezvous);
+    Sem_unlink("/rendezvous_sem");
+    
 }
