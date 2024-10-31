@@ -19,7 +19,8 @@
 
 int msgid = -1;
 int shmid = -1;
-sem_t *sem_rendezvous;
+sem_t *sem_manufacturing_done;
+sem_t *sem_print_permission;
 
 void cleanup() {
     if (msgid != -1) {
@@ -28,8 +29,11 @@ void cleanup() {
     if (shmid != -1) {
         shmctl(shmid, IPC_RMID, NULL);
     }
-    if (sem_rendezvous != NULL) {
-        sem_close(sem_rendezvous);
+    if (sem_manufacturing_done != NULL) {
+        sem_close(sem_manufacturing_done);
+    }
+    if (sem_print_permission != NULL) {
+        sem_close(sem_print_permission);
     }
 }
 
@@ -57,17 +61,17 @@ int main(int argc, char *argv[]) {
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
 
     // Attach to the message queue
-    msgid = msgget(msgkey, shmflg); // Connect to the existing message queue
+    msgid = Msgget(msgkey, 0666); // Connect to the existing message queue
 
     // Open the semaphore for synchronization with Sales
-    sem_rendezvous = Sem_open2("/cassadjx_rendezvous_sem", 0);
+    sem_rendezvous = Sem_open("/cassadjx_rendezvous_sem", semflg, semmode, 0);
     if (sem_rendezvous == SEM_FAILED) {
         perror("sem_open /cassadjx_rendezvous_sem failed");
         exit(1);
     }
 
-    int iterations = 0;
-    int total_parts_made = 0;
+    int active_factories = num_factories;
+    int total_parts = 0;
 
     while (sharedData->remain > 0) {
         msgBuf msg;
