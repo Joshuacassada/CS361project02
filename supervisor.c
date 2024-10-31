@@ -44,24 +44,23 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Invalid number of factories. Must be between 1 and %d.\n", MAXFACTORIES);
         exit(1);
     }
-
+    
+    int shmflg = IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR;
     int semmode = S_IRUSR | S_IWUSR;
     int semflg = O_CREAT | O_EXCL;
 
-
-    pid_t pid = getpid();
-    key_t shmkey = ftok(".", pid);    // Same key as used in sales.c for shared memory
-    key_t msgkey = ftok(".", pid + 1); // Same key as used in sales.c for message queue
+    key_t shmkey = ftok("/sales.c", 1);    // Same key as used in sales.c for shared memory
+    key_t msgkey = ftok("/factory.c", 1); // Same key as used in sales.c for message queue
 
     // Attach to shared memory
-    shmid = Shmget(shmkey, SHMEM_SIZE, 0666); // Connect to the existing shared memory
+    shmid = Shmget(shmkey, SHMEM_SIZE, shmflg); // Connect to the existing shared memory
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
 
     // Attach to the message queue
-    msgid = Msgget(msgkey, 0666); // Connect to the existing message queue
+    msgid = msgget(msgkey, shmflg); // Connect to the existing message queue
 
     // Open the semaphore for synchronization with Sales
-    sem_rendezvous = Sem_open("/cassadjx_rendezvous_sem", semflg, semmode, 0);
+    sem_rendezvous = Sem_open2("/cassadjx_rendezvous_sem", 0);
     if (sem_rendezvous == SEM_FAILED) {
         perror("sem_open /cassadjx_rendezvous_sem failed");
         exit(1);
@@ -70,10 +69,9 @@ int main(int argc, char *argv[]) {
     int iterations = 0;
     int total_parts_made = 0;
 
-    // Supervisor loop: wait for messages from factories
     while (sharedData->remain > 0) {
         msgBuf msg;
-        int result = Msgrcv(msgid, &msg, sizeof(msg) - sizeof(long), 0, 0);
+        int result = msgrcv(msgid, &msg, sizeof(msg) - sizeof(long), 0, 0);
         if (result == -1) {
             perror("Error receiving message");
             cleanup();
@@ -88,28 +86,25 @@ int main(int argc, char *argv[]) {
         usleep(msg.duration * 1000); // Sleep for the specified duration (in milliseconds)
         iterations++;
 
-        // Send production message
         msgBuf production_msg;
         production_msg.mtype = msg.facID;
         production_msg.facID = msg.facID;
         production_msg.partsMade = parts_to_make;
-        Msgsnd(msgid, &production_msg, sizeof(production_msg) - sizeof(long), 0);
+        msgsnd(msgid, &production_msg, sizeof(production_msg) - sizeof(long), 0);
 
         printf("Factory #%d has made %d parts\n", msg.facID, parts_to_make);
     }
 
-    // All parts made, send completion message
     for (int i = 1; i <= num_factories; i++) {
         msgBuf completion_msg;
         completion_msg.mtype = i;
         completion_msg.facID = i;
         completion_msg.partsMade = total_parts_made;
-        Msgsnd(msgid, &completion_msg, sizeof(completion_msg) - sizeof(long), 0);
+        msgsnd(msgid, &completion_msg, sizeof(completion_msg) - sizeof(long), 0);
     }
 
     printf("Supervisor: Completed. Total parts made: %d in %d iterations\n", total_parts_made, iterations);
 
-    // Signal Sales process to print final report
     Sem_post(sem_rendezvous);
 
     cleanup();
