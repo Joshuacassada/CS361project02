@@ -22,9 +22,11 @@ int shmid = -1;
 sem_t *sem_manufacturing_done;
 sem_t *sem_print_permission;
 sem_t* sem_rendezvous;
+shData *sharedData;
 
 void cleanup() {
     if (msgid != -1) {
+        shmdt(sharedData);
         msgctl(msgid, IPC_RMID, NULL);
     }
     if (shmid != -1) {
