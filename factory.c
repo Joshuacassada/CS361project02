@@ -34,7 +34,7 @@ int main(int argc, char *argv[]) {
         perror("Failed to generate key with ftok");
         exit(1);
     }
-     
+      
     Sem_wait(factoryLogSemaphore);
     printf("Factory #%d: Started. My Capacity = %3d, in %4d milliseconds\n", factory_id, factory_cap, duration);
     fflush(stdout);
