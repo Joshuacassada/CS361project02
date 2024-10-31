@@ -52,17 +52,15 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     
-    int shmflg = IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR;
+    int shmflg = S_IRUSR | S_IWUSR;
     int msgflg = S_IRUSR;
     int semmode = S_IRUSR | S_IWUSR;
     int semflg = O_CREAT | O_EXCL;
 
-    key_t shmkey = ftok("/sales.c", 1);    // Same key as used in sales.c for shared memory
-    key_t msgkey = ftok("/factory.c", 1); // Same key as used in sales.c for message queue
-
-    // Attach to shared memory
-    shmid = Shmget(shmkey, SHMEM_SIZE, shmflg); // Connect to the existing shared memory
+    key_t shmkey = ftok("/sales.c", 1);
+    shmid = Shmget(shmkey, SHMEM_SIZE, shmflg);
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
+    key_t msgkey = ftok("/factory.c", 1);
 
     // Attach to the message queue
     msgid = Msgget(msgkey, msgflg); // Connect to the existing message queue
