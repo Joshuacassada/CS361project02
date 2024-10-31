@@ -21,7 +21,7 @@ int msgid = -1;
 int shmid = -1;
 sem_t *sem_manufacturing_done;
 sem_t *sem_print_permission;
-
+ 
 void cleanup() {
     if (msgid != -1) {
         msgctl(msgid, IPC_RMID, NULL);
