@@ -10,6 +10,6 @@ factory: factory.c  wrappers.c  wrappers.h message.c  message.h shmem.h
 	gcc -pthread  factory.c     wrappers.c  message.c  -o factory
 
 clean:
-	rm -f *.o sales  factory supervisor *.log
+	rm -f *.o sales  factory  *.log
 	ipcrm -a
 	rm -f /dev/shm/aboutams_*
