@@ -1,106 +1,126 @@
+// factory.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <string.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include "wrappers.h"
 #include "message.h"
 #include "shmem.h"
-#include <fcntl.h>
-#include <sys/stat.h>
-
-sem_t *sem_factory_log;
 
 int main(int argc, char *argv[]) {
-    if (argc != 4)
-    {
-        fprintf(stderr, "Usage: %s <factory_id> <capacity> <duration>\n", argv[0]);
+    if (argc != 4) {
+        fprintf(stderr, "Factory: Usage: %s <factory_id> <capacity> <duration>\n", argv[0]);
         exit(1);
     }
 
-    int factory_id = atoi(argv[1]);
-    int factory_cap = atoi(argv[2]);
+    int factoryId = atoi(argv[1]);
+    int capacity = atoi(argv[2]);
     int duration = atoi(argv[3]);
 
-    sem_t *factoryLogSemaphore = Sem_open2("/cassadjx_sem_factory_log", 0);
- 
+    // Connect to shared memory
     key_t shmkey = ftok("sales.c", 1);
-    int shmid = Shmget(shmkey, SHMEM_SIZE, 0);
-    if (shmid == -1) {
-        perror("Failed to generate key with ftok");
-        exit(1);
-    }  
-    shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
-    if (sharedData == (shData*)-1) {
-        perror("Failed to generate key with ftok");
+    if (shmkey == -1) {
+        perror("Factory: ftok failed for shared memory");
         exit(1);
     }
-      
-    Sem_wait(factoryLogSemaphore);
-    printf("Factory #%d: Started. My Capacity = %3d, in %4d milliseconds\n", factory_id, factory_cap, duration);
+    
+    int shmid = shmget(shmkey, SHMEM_SIZE, 0666);
+    if (shmid == -1) {
+        perror("Factory: shmget failed");
+        exit(1);
+    }
+    
+    shData *sharedData = shmat(shmid, NULL, 0);
+    if (sharedData == (void *)-1) {
+        perror("Factory: shmat failed");
+        exit(1);
+    }
+
+    // Connect to message queue
+    key_t msgkey = ftok("factory.c", 1);
+    if (msgkey == -1) {
+        perror("Factory: ftok failed for message queue");
+        exit(1);
+    }
+    
+    int msgid = msgget(msgkey, 0666);
+    if (msgid == -1) {
+        perror("Factory: msgget failed");
+        exit(1);
+    }
+
+    // Connect to semaphore
+    sem_t *sem_factory_log = Sem_open2("/cassadjx_sem_factory_log", 0);
+
+    printf("Factory %d: Successfully connected to IPC mechanisms\n", factoryId);
     fflush(stdout);
-    Sem_post(factoryLogSemaphore);
 
     int iterations = 0;
-    int total_by_me = 0;
-    int amount_to_make = 0;
-    key_t msgkey = ftok("factory.c", 1);
-    int msgid = Msgget(msgkey, S_IWUSR);
-    if (msgid == -1) {
-        perror("Failed to generate key with ftok");
-        exit(1);
-    }
+    int totalPartsMade = 0;
 
-    while (sharedData->remain > 0)
-    {
-        if (sharedData->remain < factory_cap)
-        {
-            amount_to_make = sharedData -> remain;
-        } else {
-            amount_to_make = factory_cap;
+    while (1) {
+        Sem_wait(sem_factory_log);
+        if (sharedData->remain <= 0) {
+            Sem_post(sem_factory_log);
+            break;
         }
-        Sem_wait(factoryLogSemaphore);
-        sharedData->remain = sharedData->remain - amount_to_make;
-        Sem_post(factoryLogSemaphore);
-
-        Sem_wait(factoryLogSemaphore);
-        printf("Factory #%d: Going to make %3d parts in %4d milliSecs", factory_id, amount_to_make, duration);
+        
+        int partsToMake = (sharedData->remain < capacity) ? sharedData->remain : capacity;
+        sharedData->remain -= partsToMake;
+        
+        printf("Factory %d: Making %d parts in %d milliseconds\n", 
+               factoryId, partsToMake, duration);
         fflush(stdout);
-        Sem_post(factoryLogSemaphore);
-        Usleep(2000);
+        Sem_post(sem_factory_log);
 
+        Usleep(duration * 1000);
+
+        Sem_wait(sem_factory_log);
+        sharedData->made += partsToMake;
+        totalPartsMade += partsToMake;
         iterations++;
-        total_by_me += amount_to_make;
+        
+        // Send production message
+        msgBuf msg = {0};  // Initialize to zero
+        msg.mtype = 1;
+        msg.purpose = PRODUCTION_MSG;
+        msg.facID = factoryId;
+        msg.capacity = capacity;
+        msg.partsMade = partsToMake;
+        msg.duration = duration;
 
-        msgBuf message;
-        message.mtype = 1;
-        message.purpose = PRODUCTION_MSG;
-        message.facID = factory_id;
-        message.capacity = factory_cap;
-        message.partsMade = amount_to_make;
-        message.duration = duration;
-
-        // Send the message
-        if (msgsnd(msgid, &message, MSG_INFO_SIZE, 0) == -1) {
-            perror("msgsnd failed");
+        if (msgsnd(msgid, &msg, sizeof(msgBuf) - sizeof(long), 0) == -1) {
+            perror("Factory: msgsnd production failed");
+            Sem_post(sem_factory_log);
             exit(1);
         }
+        
+        printf("Factory %d: Sent production message for %d parts\n", 
+               factoryId, partsToMake);
+        fflush(stdout);
+        Sem_post(sem_factory_log);
     }
-    msgBuf message;
-    message.mtype = 1;
-    message.purpose = COMPLETION_MSG;
-    message.facID = factory_id;
-    message.capacity = factory_cap;
-    message.partsMade = total_by_me;
-    message.duration = duration;
 
-    if (msgsnd(msgid, &message, MSG_INFO_SIZE, 0) == -1) {
-        perror("msgsnd failed");
+    // Send completion message
+    msgBuf msg = {0};  // Initialize to zero
+    msg.mtype = 1;
+    msg.purpose = COMPLETION_MSG;
+    msg.facID = factoryId;
+    msg.capacity = capacity;
+    msg.partsMade = totalPartsMade;
+    msg.duration = duration;
+
+    if (msgsnd(msgid, &msg, sizeof(msgBuf) - sizeof(long), 0) == -1) {
+        perror("Factory: msgsnd completion failed");
         exit(1);
     }
 
-    Sem_wait(factoryLogSemaphore);
-    printf("Factory Line %d: Completed after making total of %d parts in %d iterations\n", factory_id, total_by_me, iterations);
+    printf("Factory %d: Sent completion message. Total parts made: %d\n", 
+           factoryId, totalPartsMade);
     fflush(stdout);
-    Sem_post(factoryLogSemaphore);
+
+    sem_close(sem_factory_log);
+    shmdt(sharedData);
     return 0;
 }

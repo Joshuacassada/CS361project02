@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <sys/msg.h>
 #include <signal.h>
+#include <unistd.h>
 
 void    unix_error(char *msg) ;
 void    posix_error(int code, char *msg) ;
