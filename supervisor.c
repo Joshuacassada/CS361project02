@@ -48,55 +48,68 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Invalid number of factories. Must be between 1 and %d.\n", MAXFACTORIES);
         exit(1);
     }
-
+    
+    int shmflg = IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR;
     int semmode = S_IRUSR | S_IWUSR;
     int semflg = O_CREAT | O_EXCL;
 
+    key_t shmkey = ftok("/sales.c", 1);    // Same key as used in sales.c for shared memory
+    key_t msgkey = ftok("/factory.c", 1); // Same key as used in sales.c for message queue
 
-    pid_t pid = getpid();
-    key_t shmkey = ftok(".", pid);
-    key_t msgkey = ftok(".", pid + 1);
-
-    // Attach to shared memory and message queue
-    shmid = Shmget(shmkey, SHMEM_SIZE, 0666);
+    // Attach to shared memory
+    shmid = Shmget(shmkey, SHMEM_SIZE, shmflg); // Connect to the existing shared memory
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
-    msgid = Msgget(msgkey, 0666);
 
-    // Open semaphores
-    sem_manufacturing_done = Sem_open("/manufacturing_done", O_CREAT, 0666, 0);
-    sem_print_permission = Sem_open("/print_permission", O_CREAT, 0666, 0);
+    // Attach to the message queue
+    msgid = Msgget(msgkey, 0666); // Connect to the existing message queue
+
+    // Open the semaphore for synchronization with Sales
+    sem_rendezvous = Sem_open("/cassadjx_rendezvous_sem", semflg, semmode, 0);
+    if (sem_rendezvous == SEM_FAILED) {
+        perror("sem_open /cassadjx_rendezvous_sem failed");
+        exit(1);
+    }
 
     int active_factories = num_factories;
     int total_parts = 0;
 
-    // Main supervisor loop
-    while (active_factories > 0) {
+    while (sharedData->remain > 0) {
         msgBuf msg;
-        Msgrcv(msgid, &msg, sizeof(msg) - sizeof(long), 0, 0);
+        int result = msgrcv(msgid, &msg, sizeof(msg) - sizeof(long), 0, 0);
+        if (result == -1) {
+            perror("Error receiving message");
+            cleanup();
+            exit(1);
+        }
 
-        if (msg.mtype == PRODUCTION_MSG) {
-            total_parts += msg.partsMade;
-            printf("Supervisor: Factory %d produced %d parts in %d milliseconds\n",
-                   msg.facID, msg.partsMade, msg.duration);
-        }
-        else if (msg.mtype == COMPLETION_MSG) {
-            active_factories--;
-            printf("Supervisor: Factory %d has terminated\n", msg.facID);
-        }
+        int parts_to_make = (sharedData->remain < msg.capacity) ? sharedData->remain : msg.capacity;
+        sharedData->remain -= parts_to_make;
+        total_parts_made += parts_to_make;
+
+        printf("Factory #%d: Going to make %d parts in %d milliseconds\n", msg.facID, parts_to_make, msg.duration);
+        usleep(msg.duration * 1000); // Sleep for the specified duration (in milliseconds)
+        iterations++;
+
+        msgBuf production_msg;
+        production_msg.mtype = msg.facID;
+        production_msg.facID = msg.facID;
+        production_msg.partsMade = parts_to_make;
+        msgsnd(msgid, &production_msg, sizeof(production_msg) - sizeof(long), 0);
+
+        printf("Factory #%d has made %d parts\n", msg.facID, parts_to_make);
     }
 
-    // Manufacturing complete, signal Sales
-    Sem_post(sem_manufacturing_done);
+    for (int i = 1; i <= num_factories; i++) {
+        msgBuf completion_msg;
+        completion_msg.mtype = i;
+        completion_msg.facID = i;
+        completion_msg.partsMade = total_parts_made;
+        msgsnd(msgid, &completion_msg, sizeof(completion_msg) - sizeof(long), 0);
+    }
 
-    // Wait for permission to print report
-    Sem_wait(sem_print_permission);
+    printf("Supervisor: Completed. Total parts made: %d in %d iterations\n", total_parts_made, iterations);
 
-    // Print final report
-    printf("\nFinal Manufacturing Report:\n");
-    printf("-------------------------\n");
-    printf("Total parts manufactured: %d\n", total_parts);
-    printf("Order size: %d\n", sharedData->order_size);
-    printf("-------------------------\n");
+    Sem_post(sem_rendezvous);
 
     cleanup();
     return 0;

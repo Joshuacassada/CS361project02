@@ -19,21 +19,22 @@ sem_t *sem_rendezvous;
 sem_t *sem_factory_log;
 pid_t childPids[MAXFACTORIES];
 sem_t *printReportSem;
+shData *sharedData;
 
 void cleanup() {
    if (shmid != -1) {
-       shmctl(shmid, IPC_RMID, NULL);
+    shmdt(sharedData);
+    shmctl(shmid, IPC_RMID, NULL);
    }
    if (msgid != -1) {
        msgctl(msgid, IPC_RMID, NULL);
    }
-   
-    Sem_close(sem_factory_log);
-    Sem_unlink("/cassadjx_sem_factory_log");
-    Sem_close(sem_rendezvous);
-    Sem_unlink("/cassadjx_rendezvous_sem");
-    Sem_close(printReportSem);
-    Sem_unlink("/cassadjx_print_report_sem");
+   Sem_close(sem_factory_log);
+   Sem_unlink("/cassadjx_sem_factory_log");
+   Sem_close(sem_rendezvous);
+   Sem_unlink("/cassadjx_rendezvous_sem");
+   Sem_close(printReportSem);
+   Sem_unlink("/cassadjx_print_report_sem");
 }
 
 void goodbye(int sig) {
@@ -71,19 +72,21 @@ int main(int argc, char *argv[]){
        exit(1);
    }
 
-   int shmflg = IPC_CREAT | 0666;
+   int shmflg = IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR;
    int semmode = S_IRUSR | S_IWUSR;
    int semflg = O_CREAT | O_EXCL;
 
    // Create shared memory
-   key_t shmkey = ftok(".", pid);
+   key_t shmkey = ftok("/sales.c", 1);
    shmid = Shmget(shmkey, SHMEM_SIZE, shmflg);
 
    // Create message queue
-   key_t msgkey = ftok(".", pid + 1);
+   key_t msgkey = ftok("/factory.c", 1);
    msgid = Msgget(msgkey, shmflg);
 
-   shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
+   sharedData = (shData *)Shmat(shmid, NULL, 0);
+
+   srand(time(NULL));
 
    sharedData->order_size = ordersize;
    sharedData->made = 0;
@@ -114,6 +117,7 @@ int main(int argc, char *argv[]){
        perror("execlp supervisor");
        exit(1);
    }
+   
    
 
    int fd = open("factory.log", O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
@@ -146,7 +150,7 @@ int main(int argc, char *argv[]){
 
    Sem_wait(sem_rendezvous);
 
-   Usleep(2000);
+   sleep(2);
 
    printf("SALES: Permission granted to print the final report\n");
 

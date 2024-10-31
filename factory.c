@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
 
     sem_t *factoryLogSemaphore = Sem_open2("/cassadjx_sem_factory_log", 0);
 
-    key_t shmkey = ftok(".", getppid());
+    key_t shmkey = ftok("./sales.c", 1);
     int shmid = Shmget(shmkey, SHMEM_SIZE, 0);
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
 
@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
     int iterations = 0;
     int total_by_me = 0;
     int amount_to_make = 0;
-    key_t msgkey = ftok(".", getppid() + 1);
+    key_t msgkey = ftok("/factory.c", 1);
     int msgid = Msgget(msgkey, 0666);
 
     while (sharedData->remain > 0)
