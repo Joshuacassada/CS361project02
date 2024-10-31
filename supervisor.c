@@ -53,6 +53,7 @@ int main(int argc, char *argv[]) {
     }
     
     int shmflg = IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR;
+    int msgflg = S_IRUSR;
     int semmode = S_IRUSR | S_IWUSR;
     int semflg = O_CREAT | O_EXCL;
 
@@ -64,7 +65,7 @@ int main(int argc, char *argv[]) {
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
 
     // Attach to the message queue
-    msgid = Msgget(msgkey, 0666); // Connect to the existing message queue
+    msgid = Msgget(msgkey, msgflg); // Connect to the existing message queue
 
     // Open the semaphore for synchronization with Sales
     sem_rendezvous = Sem_open("/cassadjx_rendezvous_sem", semflg, semmode, 0);
