@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
     key_t shmkey = ftok("/sales.c", 1);
     int shmid = Shmget(shmkey, SHMEM_SIZE, 0);
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
-
+ 
     Sem_wait(factoryLogSemaphore);
     printf("Factory #%d: Started. My Capacity = %3d, in %4d milliseconds\n", factory_id, factory_cap, duration);
     fflush(stdout);
