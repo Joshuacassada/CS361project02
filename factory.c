@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
     int duration = atoi(argv[3]);
 
     sem_t *factoryLogSemaphore = Sem_open2("/cassadjx_sem_factory_log", 0);
-
+ 
     key_t shmkey = ftok("sales.c", 1);
     int shmid = Shmget(shmkey, SHMEM_SIZE, 0);
     if (shmid == -1) {
