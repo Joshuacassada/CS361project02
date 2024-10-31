@@ -13,8 +13,8 @@
 #include "shmem.h"
 #include <sys/stat.h>
 
-int msgid;
-int shmid;
+int msgid = -1;
+int shmid = -1;
 sem_t *sem_rendezvous;
 sem_t *sem_factory_log;
 pid_t childPids[MAXFACTORIES];
@@ -22,11 +22,13 @@ sem_t *printReportSem;
 shData *sharedData;
 
 void cleanup() {
+   if (shmid != -1) {
     shmdt(sharedData);
     shmctl(shmid, IPC_RMID, NULL);
-
-    msgctl(msgid, IPC_RMID, NULL);
-
+   }
+   if (msgid != -1) {
+       msgctl(msgid, IPC_RMID, NULL);
+   }
    Sem_close(sem_factory_log);
    Sem_unlink("/cassadjx_sem_factory_log");
    Sem_close(sem_rendezvous);
