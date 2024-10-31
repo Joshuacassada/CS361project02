@@ -21,7 +21,8 @@ int msgid = -1;
 int shmid = -1;
 sem_t *sem_manufacturing_done;
 sem_t *sem_print_permission;
- 
+sem_t* sem_rendezvous;
+
 void cleanup() {
     if (msgid != -1) {
         msgctl(msgid, IPC_RMID, NULL);
@@ -71,7 +72,8 @@ int main(int argc, char *argv[]) {
     }
 
     int active_factories = num_factories;
-    int total_parts = 0;
+    int total_parts_made = 0;
+    int iterations = 0;
 
     while (sharedData->remain > 0) {
         msgBuf msg;
