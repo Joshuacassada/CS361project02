@@ -23,9 +23,17 @@ int main(int argc, char *argv[]) {
 
     sem_t *factoryLogSemaphore = Sem_open2("/cassadjx_sem_factory_log", 0);
 
-    key_t shmkey = ftok("/sales.c", 1);
+    key_t shmkey = ftok("sales.c", 1);
     int shmid = Shmget(shmkey, SHMEM_SIZE, 0);
+    if (shmid == -1) {
+        perror("Failed to generate key with ftok");
+        exit(1);
+    }  
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
+    if (sharedData == (shData*)-1) {
+        perror("Failed to generate key with ftok");
+        exit(1);
+    }
  
     Sem_wait(factoryLogSemaphore);
     printf("Factory #%d: Started. My Capacity = %3d, in %4d milliseconds\n", factory_id, factory_cap, duration);
@@ -35,8 +43,12 @@ int main(int argc, char *argv[]) {
     int iterations = 0;
     int total_by_me = 0;
     int amount_to_make = 0;
-    key_t msgkey = ftok("/factory.c", 1);
+    key_t msgkey = ftok("factory.c", 1);
     int msgid = Msgget(msgkey, S_IWUSR);
+    if (msgid == -1) {
+        perror("Failed to generate key with ftok");
+        exit(1);
+    }
 
     while (sharedData->remain > 0)
     {

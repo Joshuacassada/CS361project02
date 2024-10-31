@@ -22,19 +22,19 @@ sem_t *printReportSem;
 shData *sharedData;
 
 void cleanup() {
-   if (shmid != -1) {
+   
     shmdt(sharedData);
     shmctl(shmid, IPC_RMID, NULL);
-   }
-   if (msgid != -1) {
-       msgctl(msgid, IPC_RMID, NULL);
-   }
+   
+   msgctl(msgid, IPC_RMID, NULL);
+
    Sem_close(sem_factory_log);
    Sem_unlink("/cassadjx_sem_factory_log");
    Sem_close(sem_rendezvous);
    Sem_unlink("/cassadjx_rendezvous_sem");
    Sem_close(printReportSem);
    Sem_unlink("/cassadjx_print_report_sem");
+
 }
 
 void goodbye(int sig) {
@@ -77,14 +77,26 @@ int main(int argc, char *argv[]){
    int semflg = O_CREAT | O_EXCL;
 
    // Create shared memory
-   key_t shmkey = ftok("/sales.c", 1);
+   key_t shmkey = ftok("sales.c", 1);
    shmid = Shmget(shmkey, SHMEM_SIZE, shmflg);
+   if (shmid == -1) {
+        perror("Failed to generate key with ftok");
+        exit(1);
+    }  
 
    // Create message queue
-   key_t msgkey = ftok("/factory.c", 1);
+   key_t msgkey = ftok("factory.c", 1);
    msgid = Msgget(msgkey, shmflg);
+   if (msgid == -1) {
+        perror("Failed to generate key with ftok");
+        exit(1);
+    }
 
    sharedData = (shData *)Shmat(shmid, NULL, 0);
+   if (sharedData == (shData*)-1) {
+        perror("Failed to generate key with ftok");
+        exit(1);
+    }
 
    srand(time(NULL));
 
@@ -98,7 +110,6 @@ int main(int argc, char *argv[]){
     sem_factory_log = sem_open("/cassadjx_sem_factory_log", semflg, semmode, 1);
     
     printReportSem = sem_open("/cassadjx_print_report_sem", semflg, semmode, 0);
-
 
    printf("SALES: Will Request an Order of Size = %d parts\n", ordersize);
    printf("Creating %d Factory(ies)\n", numfactories);
@@ -117,7 +128,7 @@ int main(int argc, char *argv[]){
        perror("execlp supervisor");
        exit(1);
    }
-   
+   childPids[0] = supPid;   
    
 
    int fd = open("factory.log", O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
@@ -142,13 +153,17 @@ int main(int argc, char *argv[]){
            perror("execlp factory");
            exit(1);
        }
-       childPids[i] = factory;
-   
+       childPids[i + 1] = factory;
+       
        printf("SALES: Factory # %3d was created, with Capacity=%4d and Duration=%4d\n",
-              i + 1, capacity, duration);
+            i + 1, capacity, duration);
+
    }
 
+
    Sem_wait(sem_rendezvous);
+   printf("SALES: Supervisor says all Factories have completed their mission\n");
+
 
    sleep(2);
 
@@ -159,7 +174,7 @@ int main(int argc, char *argv[]){
    printf("SALES: Cleaning up after the Supervisor Factory Processes\n");
 
    for (int i = 0; i < numfactories; i++) {
-       waitpid(childPids[i], NULL, 0);
+       wait(NULL);
    }
 
    cleanup();

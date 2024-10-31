@@ -62,10 +62,22 @@ int main(int argc, char *argv[]) {
 
     // Attach to shared memory
     shmid = Shmget(shmkey, SHMEM_SIZE, shmflg); // Connect to the existing shared memory
+    if (shmid == -1) {
+        perror("Failed to generate key with ftok");
+        exit(1);
+    }  
     shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
+    if (sharedData == (shData*)-1) {
+        perror("Failed to generate key with ftok");
+        exit(1);
+    }
 
     // Attach to the message queue
     msgid = Msgget(msgkey, msgflg); // Connect to the existing message queue
+    if (msgid == -1) {
+        perror("Failed to generate key with ftok");
+        exit(1);
+    }
 
     // Open the semaphore for synchronization with Sales
     sem_rendezvous = Sem_open("/cassadjx_rendezvous_sem", semflg, semmode, 0);
