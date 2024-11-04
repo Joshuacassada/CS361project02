@@ -1,7 +1,8 @@
 //---------------------------------------------------------------------
 // Assignment : PA-02 Concurrent Processes & IPC
 // Date       : 11/04/2024
-// Author     : Joshua Cassada and Thomas Cantrell
+// Authors    : Joshua Cassada (cassadjx@dukes.jmu.edu) and Thomas Cantrell (cantretw@dukes.jmu.edu)
+// File name  : factory.c
 //----------------------------------------------------------------------
 
 #include <stdio.h>
