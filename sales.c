@@ -13,25 +13,22 @@
 #include "shmem.h"
 #include <sys/stat.h>
 
-// Global variables
 int msgid = -1;
 int shmid = -1;
 sem_t *sem_rendezvous = NULL;
 sem_t *sem_factory_log = NULL;
 sem_t *printReportSem = NULL;
-pid_t childPids[MAXFACTORIES + 1];  // +1 for supervisor
+pid_t childPids[MAXFACTORIES + 1];
 shData *sharedData = NULL;
-int numChildren = 0;  // Track number of children created
+int numChildren = 0;
 
 void cleanup() {
-    // Kill all child processes
     for (int i = 0; i < numChildren; i++) {
         if (childPids[i] > 0) {
             kill(childPids[i], SIGKILL);
         }
     }
 
-    // Clean up semaphores
     if (sem_rendezvous) {
         Sem_close(sem_rendezvous);
         Sem_unlink("/cantretw_rendezvous_sem");
@@ -44,8 +41,6 @@ void cleanup() {
         Sem_close(printReportSem);
         Sem_unlink("/cantretw_print_report_sem");
     }
-
-    // Clean up shared memory and message queue
     if (sharedData) {
         Shmdt(sharedData);
     }
@@ -78,7 +73,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Usage: %s <numfactories> <ordersize>\n", argv[0]);
         exit(1);
     }
-
     int numfactories = atoi(argv[1]);
     int ordersize = atoi(argv[2]);
 
@@ -89,14 +83,12 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Number of factories must be between 1 and %d\n", MAXFACTORIES);
         exit(1);
     }
-
     int shmflg = IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR;
     int semmode = S_IRUSR | S_IWUSR;
     int semflg = O_CREAT | O_EXCL;
 
     key_t shmkey = ftok("sales.c", 1);
     shmid = Shmget(shmkey, SHMEM_SIZE, shmflg);
-
     key_t msgkey = ftok("factory.c", 1);
     msgid = Msgget(msgkey, shmflg);
     
@@ -107,7 +99,6 @@ int main(int argc, char *argv[]) {
     sharedData->made = 0;
     sharedData->remain = ordersize;
     sharedData->activeFactories = numfactories;
-
     sem_rendezvous = Sem_open("/cantretw_rendezvous_sem", semflg, semmode, 0);
     sem_factory_log = Sem_open("/cantretw_sem_factory_log", semflg, semmode, 1);
     printReportSem = Sem_open("/cantretw_print_report_sem", semflg, semmode, 0);
@@ -135,7 +126,6 @@ int main(int argc, char *argv[]) {
     close(fc);
     childPids[numChildren++] = supPid;
 
-    // Create and setup factories
     int fd = open("factory.log", O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
     if (fd == -1) {
         perror("error opening factory.log");
@@ -165,18 +155,13 @@ int main(int argc, char *argv[]) {
                i + 1, capacity, duration);
     }
     close(fd);
-
     Sem_wait(sem_rendezvous);
     printf("SALES: Supervisor says all Factories have completed their mission\n");
-
     sleep(2);
-
     printf("SALES: Permission granted to print the final report\n");
     Sem_post(printReportSem);
     
     printf("SALES: Cleaning up after the Supervisor Factory Processes\n");
-
-    // Wait for all children
     for (int i = 0; i < numChildren; i++) {
         wait(NULL);
     }
