@@ -1,16 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include "wrappers.h"
 #include "message.h"
 #include "shmem.h"
-
-typedef struct {
-    int totalParts;
-    int totalIterations;
-} FactoryStats;
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
@@ -19,90 +14,66 @@ int main(int argc, char *argv[]) {
     }
 
     int numFactories = atoi(argv[1]);
-    int activeFactories = numFactories;
+    int factoryParts[MAXFACTORIES] = {0};
+    int factoryIterations[MAXFACTORIES] = {0};
 
-    // Connect to shared memory
     key_t shmkey = ftok("sales.c", 1);
-    int shmid = Shmget(shmkey, SHMEM_SIZE, S_IRUSR | S_IWUSR);
-    shData *sharedData = (shData *)Shmat(shmid, NULL, 0);
+    int shmid = shmget(shmkey, SHMEM_SIZE, S_IRUSR | S_IWUSR);
+    shData *sharedData = shmat(shmid, NULL, 0);
 
-    // Connect to message queue
     key_t msgkey = ftok("factory.c", 1);
-    int msgid = Msgget(msgkey, S_IRUSR | S_IWUSR);
+    int msgid = msgget(msgkey, S_IRUSR | S_IWUSR);
 
-    // Connect to semaphores
-    sem_t *sem_rendezvous = sem_open("/cassadjx_rendezvous_sem", 0);
-    sem_t *printReportSem = sem_open("/cassadjx_print_report_sem", 0);
-    
-    if (sem_rendezvous == SEM_FAILED || printReportSem == SEM_FAILED) {
-        perror("sem_open");
-        exit(1);
-    }
-
-    // Array to store statistics for each factory
-    FactoryStats *stats = calloc(numFactories, sizeof(FactoryStats));
-    if (!stats) {
-        perror("calloc");
-        exit(1);
-    }
-
-    printf("Supervisor: Starting to monitor %d factories\n", numFactories);
+    sem_t *sem_rendezvous = Sem_open2("/cantretw_rendezvous_sem", 0);
+    sem_t *printReportSem = Sem_open2("/cantretw_print_report_sem", 0);
+    printf("SUPERVISOR: Started\n");
     fflush(stdout);
 
-    // Process messages until all factories are done
+    int activeFactories = numFactories;
     msgBuf msg;
+
     while (activeFactories > 0) {
-        // Important: sizeof(msg) - sizeof(long) for the size
-        if (msgrcv(msgid, &msg, sizeof(msgBuf) - sizeof(long), 0, 0) == -1) {
-            perror("msgrcv");
+        if (msgrcv(msgid, &msg, sizeof(msgBuf) - sizeof(long), 1, 0) == -1) {
+            perror("msgrcv failed");
             exit(1);
         }
-
+        int facIndex = msg.facID - 1;
+        
         if (msg.purpose == PRODUCTION_MSG) {
-            printf("Supervisor: Factory %d produced %d parts in %d milliseconds\n",
+            printf("SUPERVISOR: Factory # %d produced %3d parts in %4d milliSecs\n",
                    msg.facID, msg.partsMade, msg.duration);
             fflush(stdout);
             
-            // Update statistics
-            stats[msg.facID - 1].totalParts += msg.partsMade;
-            stats[msg.facID - 1].totalIterations++;
-            
-        } else if (msg.purpose == COMPLETION_MSG) {
-            printf("Supervisor: Factory %d Terminated\n", msg.facID);
+            factoryParts[facIndex] += msg.partsMade;
+            factoryIterations[facIndex]++;
+        }
+        else if (msg.purpose == COMPLETION_MSG) {
+            printf("SUPERVISOR: Factory # %d        COMPLETED its task\n", msg.facID);
             fflush(stdout);
             activeFactories--;
         }
     }
-
-    printf("Supervisor: All factories have completed\n");
+    printf("SUPERVISOR: Manufacturing is complete. Awaiting permission to print final report\n");
     fflush(stdout);
 
-    // Signal sales that manufacturing is complete
     Sem_post(sem_rendezvous);
-
-    // Wait for permission to print final report
     Sem_wait(printReportSem);
 
-    // Print final report
-    printf("\nSupervisor: Manufacturing Statistics:\n");
-    printf("=====================================\n");
+    printf("\n****** SUPERVISOR: Final Report ******\n");
     int grandTotal = 0;
-    
     for (int i = 0; i < numFactories; i++) {
-        printf("Factory %d: Made %d parts in %d iterations\n",
-               i + 1, stats[i].totalParts, stats[i].totalIterations);
-        grandTotal += stats[i].totalParts;
+        printf("Factory # %d made a total of %4d parts in %5d iterations\n",
+               i + 1, factoryParts[i], factoryIterations[i]);
+        grandTotal += factoryParts[i];
     }
-    
-    printf("\nTotal parts manufactured: %d (Original order: %d)\n",
+    printf("===============================\n");
+    printf("Grand total parts made = %d    vs    order size of %d\n\n",
            grandTotal, sharedData->order_size);
+    printf(">>> Supervisor Terminated\n");
     fflush(stdout);
-
-    // Cleanup
-    free(stats);
     sem_close(sem_rendezvous);
     sem_close(printReportSem);
-    Shmdt(sharedData);
-    
+    shmdt(sharedData);
+
     return 0;
 }
