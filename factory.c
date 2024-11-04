@@ -1,3 +1,9 @@
+//---------------------------------------------------------------------
+// Assignment : PA-02 Concurrent Processes & IPC
+// Date       : 11/04/2024
+// Author     : Joshua Cassada and Thomas Cantrell
+//----------------------------------------------------------------------
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
