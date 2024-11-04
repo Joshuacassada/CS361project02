@@ -19,6 +19,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Usage: %s <factory_id> <capacity> <duration>\n", argv[0]);
         exit(1);
     }
+    //Recieve command line parameters converting to integer
     int factoryId = atoi(argv[1]);
     int capacity = atoi(argv[2]);
     int duration = atoi(argv[3]);
@@ -41,6 +42,7 @@ int main(int argc, char *argv[]) {
 
     while (1) {
         int partsToMake;
+        //protected section of code under semwait and post
         Sem_wait(sem_factory_log);
         if (sharedData->remain <= 0) {
             Sem_post(sem_factory_log);
@@ -54,8 +56,9 @@ int main(int argc, char *argv[]) {
         fflush(stdout);
         Sem_post(sem_factory_log);
 
+        //usleep function to simulate manufactoring process
         Usleep(duration * 1000);
-
+        //protected section to make sure other factories dont overlap in parts to make
         Sem_wait(sem_factory_log);
         sharedData->made += partsToMake;
         Sem_post(sem_factory_log);
@@ -75,6 +78,7 @@ int main(int argc, char *argv[]) {
             exit(1);
         }
     }
+    //completion message
     msgBuf msg = {0};
     msg.mtype = 1;
     msg.purpose = COMPLETION_MSG;
