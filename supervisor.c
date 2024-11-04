@@ -18,8 +18,9 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Usage: %s <num_factories>\n", argv[0]);
         exit(1);
     }
-
+    //Recieve commandline arguments and create 
     int numFactories = atoi(argv[1]);
+    //Array to track total parts made by each factory and initialized it to zero
     int factoryParts[MAXFACTORIES] = {0};
     int factoryIterations[MAXFACTORIES] = {0};
 
@@ -35,6 +36,7 @@ int main(int argc, char *argv[]) {
     printf("SUPERVISOR: Started\n");
     fflush(stdout);
 
+    //Track number of active factories
     int activeFactories = numFactories;
     msgBuf msg;
 
@@ -65,8 +67,10 @@ int main(int argc, char *argv[]) {
     Sem_post(sem_rendezvous);
     Sem_wait(printReportSem);
 
+    //print final production report
     printf("\n****** SUPERVISOR: Final Report ******\n");
     int grandTotal = 0;
+    //print statistics for each factory
     for (int i = 0; i < numFactories; i++) {
         printf("Factory # %d made a total of %4d parts in %5d iterations\n",
                i + 1, factoryParts[i], factoryIterations[i]);
