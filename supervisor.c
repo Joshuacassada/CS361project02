@@ -18,11 +18,11 @@ int main(int argc, char *argv[]) {
     int factoryIterations[MAXFACTORIES] = {0};
 
     key_t shmkey = ftok("sales.c", 1);
-    int shmid = shmget(shmkey, SHMEM_SIZE, S_IRUSR | S_IWUSR);
-    shData *sharedData = shmat(shmid, NULL, 0);
+    int shmid = Shmget(shmkey, SHMEM_SIZE, S_IRUSR | S_IWUSR);
+    shData *sharedData = Shmat(shmid, NULL, 0);
 
     key_t msgkey = ftok("factory.c", 1);
-    int msgid = msgget(msgkey, S_IRUSR | S_IWUSR);
+    int msgid = Msgget(msgkey, S_IRUSR | S_IWUSR);
 
     sem_t *sem_rendezvous = Sem_open2("/cantretw_rendezvous_sem", 0);
     sem_t *printReportSem = Sem_open2("/cantretw_print_report_sem", 0);
@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
     msgBuf msg;
 
     while (activeFactories > 0) {
-        if (msgrcv(msgid, &msg, sizeof(msgBuf) - sizeof(long), 1, 0) == -1) {
+        if (msgrcv(msgid, &msg, MSG_INFO_SIZE, 1, 0) == -1) {
             perror("msgrcv failed");
             exit(1);
         }
@@ -71,9 +71,9 @@ int main(int argc, char *argv[]) {
            grandTotal, sharedData->order_size);
     printf(">>> Supervisor Terminated\n");
     fflush(stdout);
-    sem_close(sem_rendezvous);
-    sem_close(printReportSem);
-    shmdt(sharedData);
+    Sem_close(sem_rendezvous);
+    Sem_close(printReportSem);
+    Shmdt(sharedData);
 
     return 0;
 }

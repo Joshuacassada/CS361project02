@@ -94,23 +94,20 @@ int main(int argc, char *argv[]) {
     int semmode = S_IRUSR | S_IWUSR;
     int semflg = O_CREAT | O_EXCL;
 
-    // Create shared memory
     key_t shmkey = ftok("sales.c", 1);
     shmid = Shmget(shmkey, SHMEM_SIZE, shmflg);
 
-    // Create message queue
     key_t msgkey = ftok("factory.c", 1);
     msgid = Msgget(msgkey, shmflg);
     
     sharedData = (shData *)Shmat(shmid, NULL, 0);
-    srandom(time(NULL));  // Using srandom() instead of srand()
+    srandom(time(NULL));
 
     sharedData->order_size = ordersize;
     sharedData->made = 0;
     sharedData->remain = ordersize;
     sharedData->activeFactories = numfactories;
 
-    // Create semaphores
     sem_rendezvous = Sem_open("/cantretw_rendezvous_sem", semflg, semmode, 0);
     sem_factory_log = Sem_open("/cantretw_sem_factory_log", semflg, semmode, 1);
     printReportSem = Sem_open("/cantretw_print_report_sem", semflg, semmode, 0);
@@ -118,7 +115,6 @@ int main(int argc, char *argv[]) {
     printf("SALES: Will Request an Order of Size = %d parts\n", ordersize);
     printf("Creating %d Factory(ies)\n", numfactories);
 
-    // Create and setup supervisor
     int fc = open("supervisor.log", O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
     if (fc == -1) {
         perror("error opening supervisor.log");

@@ -18,24 +18,11 @@ int main(int argc, char *argv[]) {
 
     
     key_t shmkey = ftok("sales.c", 1);
-    int shmid = shmget(shmkey, SHMEM_SIZE, S_IRUSR | S_IWUSR);
-    if (shmid == -1) {
-        perror("shmget failed");
-        exit(1);
-    }
+    int shmid = Shmget(shmkey, SHMEM_SIZE, S_IRUSR | S_IWUSR);
     
-    shData *sharedData = shmat(shmid, NULL, 0);
-    if (sharedData == (void *)-1) {
-        perror("shmat failed");
-        exit(1);
-    }
-
+    shData *sharedData = Shmat(shmid, NULL, 0);
     key_t msgkey = ftok("factory.c", 1);
-    int msgid = msgget(msgkey, S_IRUSR | S_IWUSR);
-    if (msgid == -1) {
-        perror("msgget failed");
-        exit(1);
-    }
+    int msgid = Msgget(msgkey, S_IRUSR | S_IWUSR);
     sem_t *sem_factory_log = Sem_open2("/cantretw_sem_factory_log", 0);
 
     Sem_wait(sem_factory_log);
@@ -60,7 +47,7 @@ int main(int argc, char *argv[]) {
         fflush(stdout);
         Sem_post(sem_factory_log);
 
-        usleep(duration * 1000);
+        Usleep(duration * 1000);
 
         Sem_wait(sem_factory_log);
         sharedData->made += partsToMake;
@@ -76,7 +63,7 @@ int main(int argc, char *argv[]) {
         msg.partsMade = partsToMake;
         msg.duration = duration;
 
-        if (msgsnd(msgid, &msg, sizeof(msgBuf) - sizeof(long), 0) == -1) {
+        if (msgsnd(msgid, &msg, MSG_INFO_SIZE, 0) == -1) {
             perror("msgsnd production failed");
             exit(1);
         }
@@ -89,7 +76,7 @@ int main(int argc, char *argv[]) {
     msg.partsMade = totalPartsMade;
     msg.duration = duration;
 
-    if (msgsnd(msgid, &msg, sizeof(msgBuf) - sizeof(long), 0) == -1) {
+    if (msgsnd(msgid, &msg, MSG_INFO_SIZE, 0) == -1) {
         perror("msgsnd completion failed");
         exit(1);
     }
@@ -100,7 +87,7 @@ int main(int argc, char *argv[]) {
     fflush(stdout);
     Sem_post(sem_factory_log);
 
-    sem_close(sem_factory_log);
-    shmdt(sharedData);
+    Sem_close(sem_factory_log);
+    Shmdt(sharedData);
     return 0;
 }
