@@ -19,6 +19,7 @@
 #include "shmem.h"
 #include <sys/stat.h>
 
+// This is our global variables initializing what we will need.
 int msgid = -1;
 int shmid = -1;
 sem_t *sem_rendezvous = NULL;
@@ -28,6 +29,7 @@ pid_t childPids[MAXFACTORIES + 1];
 shData *sharedData = NULL;
 int numChildren = 0;
 
+// Cleanup method that closes and unlinks semaphores if necessary that we can call again when needed in the code.
 void cleanup() {
     for (int i = 0; i < numChildren; i++) {
         if (childPids[i] > 0) {
@@ -58,6 +60,8 @@ void cleanup() {
     }
 }
 
+// This is our goodbye method that we use to control the SIGTERM, SIGINT, and default interruptions.
+// And we call cleanup at the end to close any semaphores necessary.
 void goodbye(int sig) {
     fflush(stdout);
     switch(sig) {
@@ -74,11 +78,13 @@ void goodbye(int sig) {
     exit(0);
 }
 
+//This is our main function that runs the rest of the code needed for sales. 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
         fprintf(stderr, "Usage: %s <numfactories> <ordersize>\n", argv[0]);
         exit(1);
     }
+    //This is the intializer for number of factories and order size using argv[1] and argv[2]
     int numfactories = atoi(argv[1]);
     int ordersize = atoi(argv[2]);
 
@@ -89,6 +95,8 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Number of factories must be between 1 and %d\n", MAXFACTORIES);
         exit(1);
     }
+
+    //This is where we get shared memory and message queue for the sales and factory.
     int shmflg = IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR;
     int semmode = S_IRUSR | S_IWUSR;
     int semflg = O_CREAT | O_EXCL;
@@ -112,6 +120,8 @@ int main(int argc, char *argv[]) {
     printf("SALES: Will Request an Order of Size = %d parts\n", ordersize);
     printf("Creating %d Factory(ies)\n", numfactories);
 
+
+    //This is where you open supervisor.log
     int fc = open("supervisor.log", O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
     if (fc == -1) {
         perror("error opening supervisor.log");
@@ -119,6 +129,8 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    // This is the fork for supervisor where you need to do the checks for errors
+    // and you must duplicate the file.
     pid_t supPid = Fork();
     if (supPid == 0) {
         dup2(fc, fileno(stdout));
@@ -132,6 +144,7 @@ int main(int argc, char *argv[]) {
     close(fc);
     childPids[numChildren++] = supPid;
 
+    // This is the factory.log where you have to open.
     int fd = open("factory.log", O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
     if (fd == -1) {
         perror("error opening factory.log");
@@ -139,6 +152,8 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    // This is the fork for factory where you have to get capacity and duration.
+    // and you have to exec and check for errors. 
     for (int i = 0; i < numfactories; i++) {
         int capacity = (random() % 41) + 10;
         int duration = (random() % 701) + 500;
@@ -160,6 +175,9 @@ int main(int argc, char *argv[]) {
         printf("SALES: Factory # %3d was created, with Capacity=%4d and Duration=%4d\n",
                i + 1, capacity, duration);
     }
+
+    //Lastly this is where you wait and post depending on when the code is supposed to run from factory
+    // or supervisor. And lastly call cleanup to close and unlink the semaphores necessary.
     close(fd);
     Sem_wait(sem_rendezvous);
     printf("SALES: Supervisor says all Factories have completed their mission\n");
